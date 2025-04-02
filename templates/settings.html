@@ -1,0 +1,393 @@
+{% extends 'base.html' %}
+
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <h1><i class="fas fa-cog me-2"></i> Settings</h1>
+        <p class="lead">Configure application settings and preferences</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-4 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-sliders-h me-2"></i> Scan Settings</h5>
+            </div>
+            <div class="card-body">
+                <form id="scanSettingsForm">
+                    <div class="mb-3">
+                        <label for="defaultConcurrency" class="form-label">Default Concurrency</label>
+                        <input type="number" class="form-control" id="defaultConcurrency" name="defaultConcurrency" min="1" max="100" value="10">
+                        <div class="form-text">Default number of parallel SSH connections</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="sshTimeout" class="form-label">SSH Connection Timeout</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" id="sshTimeout" name="sshTimeout" min="1" max="60" value="10">
+                            <span class="input-group-text">seconds</span>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="commandTimeout" class="form-label">Command Execution Timeout</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" id="commandTimeout" name="commandTimeout" min="5" max="300" value="30">
+                            <span class="input-group-text">seconds</span>
+                        </div>
+                    </div>
+                    
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="collectServerInfoByDefault" name="collectServerInfoByDefault">
+                        <label class="form-check-label" for="collectServerInfoByDefault">Collect server info by default</label>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i> Save Settings
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-user-shield me-2"></i> Security Settings</h5>
+            </div>
+            <div class="card-body">
+                <form id="securitySettingsForm">
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="maskPasswords" name="maskPasswords" checked>
+                        <label class="form-check-label" for="maskPasswords">Mask passwords in logs</label>
+                    </div>
+                    
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="storeSSHKeys" name="storeSSHKeys">
+                        <label class="form-check-label" for="storeSSHKeys">Store SSH keys for future use</label>
+                    </div>
+                    
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="trustUnknownHosts" name="trustUnknownHosts" checked>
+                        <label class="form-check-label" for="trustUnknownHosts">Automatically trust unknown hosts</label>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="dataRetention" class="form-label">Data Retention</label>
+                        <select class="form-select" id="dataRetention" name="dataRetention">
+                            <option value="7">7 days</option>
+                            <option value="14">14 days</option>
+                            <option value="30" selected>30 days</option>
+                            <option value="90">90 days</option>
+                            <option value="365">1 year</option>
+                            <option value="0">Forever</option>
+                        </select>
+                        <div class="form-text">How long to keep scan results</div>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i> Save Settings
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-table me-2"></i> Display Settings</h5>
+            </div>
+            <div class="card-body">
+                <form id="displaySettingsForm">
+                    <div class="mb-3">
+                        <label for="defaultPageSize" class="form-label">Default Results Page Size</label>
+                        <select class="form-select" id="defaultPageSize" name="defaultPageSize">
+                            <option value="10">10</option>
+                            <option value="25" selected>25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="-1">All</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="resultSortOrder" class="form-label">Result Sort Order</label>
+                        <select class="form-select" id="resultSortOrder" name="resultSortOrder">
+                            <option value="ip_asc">IP Address (Ascending)</option>
+                            <option value="ip_desc">IP Address (Descending)</option>
+                            <option value="status_asc">Status (Success first)</option>
+                            <option value="status_desc">Status (Failed first)</option>
+                            <option value="time_asc">Execution Time (Fastest first)</option>
+                            <option value="time_desc">Execution Time (Slowest first)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="showCommandOutput" name="showCommandOutput" checked>
+                        <label class="form-check-label" for="showCommandOutput">Show command output in results table</label>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="chartColorScheme" class="form-label">Chart Color Scheme</label>
+                        <select class="form-select" id="chartColorScheme" name="chartColorScheme">
+                            <option value="default" selected>Default</option>
+                            <option value="pastel">Pastel</option>
+                            <option value="vibrant">Vibrant</option>
+                            <option value="monochrome">Monochrome</option>
+                        </select>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i> Save Settings
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-database me-2"></i> Data Management</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-3">
+                    <button type="button" class="btn btn-outline-primary" id="exportAllData">
+                        <i class="fas fa-file-export me-2"></i> Export All Data
+                    </button>
+                    <button type="button" class="btn btn-outline-warning" id="clearScanHistory">
+                        <i class="fas fa-eraser me-2"></i> Clear Scan History
+                    </button>
+                    <button type="button" class="btn btn-outline-danger" id="resetApplication">
+                        <i class="fas fa-bomb me-2"></i> Reset Application
+                    </button>
+                </div>
+            </div>
+            <div class="card-footer">
+                <small class="text-muted">
+                    <i class="fas fa-info-circle me-1"></i> These actions cannot be undone. Make sure to export your data before clearing history or resetting the application.
+                </small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i> About</h5>
+            </div>
+            <div class="card-body">
+                <h4 class="mb-3">Subnet Whisperer</h4>
+                <p>A powerful tool for scanning subnets, executing commands via SSH, and analyzing results with multi-threading support.</p>
+                
+                <div class="d-flex align-items-center mb-3">
+                    <div class="me-3">
+                        <span class="badge bg-primary fs-6">Version 1.0.0</span>
+                    </div>
+                    <div>
+                        <small class="text-muted">Built with Python, Flask, and Paramiko</small>
+                    </div>
+                </div>
+                
+                <h5 class="mb-2">Features</h5>
+                <ul class="list-unstyled">
+                    <li><i class="fas fa-check-circle text-success me-2"></i> Multi-threaded subnet scanning</li>
+                    <li><i class="fas fa-check-circle text-success me-2"></i> SSH command execution</li>
+                    <li><i class="fas fa-check-circle text-success me-2"></i> Server information collection</li>
+                    <li><i class="fas fa-check-circle text-success me-2"></i> Command templates</li>
+                    <li><i class="fas fa-check-circle text-success me-2"></i> Advanced result filtering</li>
+                </ul>
+                
+                <div class="d-grid gap-2 mt-3">
+                    <button type="button" class="btn btn-outline-info" id="checkForUpdates">
+                        <i class="fas fa-sync me-2"></i> Check for Updates
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation Modals -->
+<div class="modal fade" id="clearHistoryModal" tabindex="-1" aria-labelledby="clearHistoryModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="clearHistoryModalLabel">
+                    <i class="fas fa-exclamation-triangle me-2"></i> Clear Scan History
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to clear all scan history?</p>
+                <p class="text-danger">This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmClearHistory">Clear History</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="resetAppModal" tabindex="-1" aria-labelledby="resetAppModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="resetAppModalLabel">
+                    <i class="fas fa-exclamation-triangle me-2"></i> Reset Application
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to reset the application?</p>
+                <p>This will:</p>
+                <ul>
+                    <li>Delete all scan history</li>
+                    <li>Delete all command templates</li>
+                    <li>Reset all settings to default values</li>
+                </ul>
+                <p class="text-danger">This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmResetApp">Reset Application</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Save settings forms
+    const forms = ['scanSettingsForm', 'securitySettingsForm', 'displaySettingsForm'];
+    
+    forms.forEach(formId => {
+        document.getElementById(formId).addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // In a real application, you would save these settings to the server
+            // For now, we'll just show a success message
+            const formData = new FormData(this);
+            const settings = {};
+            
+            for (const [key, value] of formData.entries()) {
+                settings[key] = value;
+            }
+            
+            console.log(`Saving ${formId} settings:`, settings);
+            
+            // Show success message
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-success alert-dismissible fade show mt-3';
+            alert.innerHTML = `
+                <i class="fas fa-check-circle me-2"></i> Settings saved successfully!
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            
+            this.appendChild(alert);
+            
+            // Auto-dismiss after 3 seconds
+            setTimeout(() => {
+                alert.classList.remove('show');
+                setTimeout(() => alert.remove(), 150);
+            }, 3000);
+        });
+    });
+    
+    // Data management buttons
+    document.getElementById('exportAllData').addEventListener('click', function() {
+        alert('Export functionality would be implemented here');
+    });
+    
+    document.getElementById('clearScanHistory').addEventListener('click', function() {
+        const modal = new bootstrap.Modal(document.getElementById('clearHistoryModal'));
+        modal.show();
+    });
+    
+    document.getElementById('resetApplication').addEventListener('click', function() {
+        const modal = new bootstrap.Modal(document.getElementById('resetAppModal'));
+        modal.show();
+    });
+    
+    document.getElementById('confirmClearHistory').addEventListener('click', function() {
+        // In a real application, you would clear the scan history here
+        console.log('Clearing scan history...');
+        
+        // Close the modal
+        bootstrap.Modal.getInstance(document.getElementById('clearHistoryModal')).hide();
+        
+        // Show success message
+        const alert = document.createElement('div');
+        alert.className = 'alert alert-success alert-dismissible fade show';
+        alert.innerHTML = `
+            <i class="fas fa-check-circle me-2"></i> Scan history cleared successfully!
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        
+        document.querySelector('.row:first-child').insertAdjacentElement('afterend', alert);
+        
+        // Auto-dismiss after 3 seconds
+        setTimeout(() => {
+            alert.classList.remove('show');
+            setTimeout(() => alert.remove(), 150);
+        }, 3000);
+    });
+    
+    document.getElementById('confirmResetApp').addEventListener('click', function() {
+        // In a real application, you would reset the application here
+        console.log('Resetting application...');
+        
+        // Close the modal
+        bootstrap.Modal.getInstance(document.getElementById('resetAppModal')).hide();
+        
+        // Show success message
+        const alert = document.createElement('div');
+        alert.className = 'alert alert-success alert-dismissible fade show';
+        alert.innerHTML = `
+            <i class="fas fa-check-circle me-2"></i> Application reset successfully!
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        
+        document.querySelector('.row:first-child').insertAdjacentElement('afterend', alert);
+        
+        // Auto-dismiss after 3 seconds
+        setTimeout(() => {
+            alert.classList.remove('show');
+            setTimeout(() => alert.remove(), 150);
+        }, 3000);
+    });
+    
+    document.getElementById('checkForUpdates').addEventListener('click', function() {
+        // In a real application, you would check for updates here
+        this.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Checking...';
+        this.disabled = true;
+        
+        // Simulate a check
+        setTimeout(() => {
+            this.innerHTML = '<i class="fas fa-check-circle me-2"></i> Up to Date!';
+            this.disabled = false;
+            
+            // Reset after 3 seconds
+            setTimeout(() => {
+                this.innerHTML = '<i class="fas fa-sync me-2"></i> Check for Updates';
+            }, 3000);
+        }, 2000);
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,372 @@
+{% extends 'base.html' %}
+
+{% block title %}Command Templates{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <h1><i class="fas fa-file-code me-2"></i> Command Templates</h1>
+        <p class="lead">Create and manage reusable command templates</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-5">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-plus-circle me-2"></i> Create Template</h5>
+            </div>
+            <div class="card-body">
+                <form id="templateForm" method="POST">
+                    {{ form.csrf_token }}
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.name.id }}" class="form-label">Template Name</label>
+                        {{ form.name(class="form-control", placeholder="Enter a descriptive name") }}
+                        {% if form.name.errors %}
+                            <div class="invalid-feedback d-block">
+                                {% for error in form.name.errors %}
+                                    {{ error }}
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.description.id }}" class="form-label">Description</label>
+                        {{ form.description(class="form-control", placeholder="Describe the purpose of these commands", rows=3) }}
+                        {% if form.description.errors %}
+                            <div class="invalid-feedback d-block">
+                                {% for error in form.description.errors %}
+                                    {{ error }}
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.commands.id }}" class="form-label">Commands</label>
+                        {{ form.commands(class="form-control", placeholder="Enter commands, one per line", rows=10) }}
+                        {% if form.commands.errors %}
+                            <div class="invalid-feedback d-block">
+                                {% for error in form.commands.errors %}
+                                    {{ error }}
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                        <div class="form-text">Enter one command per line. The commands will be executed in order.</div>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i> Save Template
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-7">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-list me-2"></i> Saved Templates</h5>
+            </div>
+            <div class="card-body">
+                {% if templates %}
+                <div class="table-responsive">
+                    <table class="table table-hover" id="templatesTable">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Description</th>
+                                <th>Commands</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for template in templates %}
+                            <tr>
+                                <td>{{ template.name }}</td>
+                                <td>{{ template.description|truncate(50) }}</td>
+                                <td>{{ template.commands.count('\n') + 1 }} commands</td>
+                                <td>{{ template.created_at.strftime('%Y-%m-%d') }}</td>
+                                <td>
+                                    <div class="btn-group btn-group-sm">
+                                        <button type="button" class="btn btn-info view-template" data-template-id="{{ template.id }}">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-warning edit-template" data-template-id="{{ template.id }}">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-danger delete-template" data-template-id="{{ template.id }}">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i> No templates have been created yet.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-lightbulb me-2"></i> Template Examples</h5>
+            </div>
+            <div class="card-body">
+                <div class="accordion" id="exampleTemplates">
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="headingOne">
+                            <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="true" aria-controls="collapseOne">
+                                Basic System Information
+                            </button>
+                        </h2>
+                        <div id="collapseOne" class="accordion-collapse collapse show" aria-labelledby="headingOne" data-bs-parent="#exampleTemplates">
+                            <div class="accordion-body">
+                                <pre class="bg-dark text-light p-2 rounded">hostname
+uname -a
+uptime
+who
+free -h
+df -h
+cat /etc/os-release</pre>
+                                <button class="btn btn-sm btn-outline-secondary use-example" data-example="basic">
+                                    <i class="fas fa-copy me-1"></i> Use This Template
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="headingTwo">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTwo" aria-expanded="false" aria-controls="collapseTwo">
+                                Network Diagnostics
+                            </button>
+                        </h2>
+                        <div id="collapseTwo" class="accordion-collapse collapse" aria-labelledby="headingTwo" data-bs-parent="#exampleTemplates">
+                            <div class="accordion-body">
+                                <pre class="bg-dark text-light p-2 rounded">ip addr
+ip route
+ss -tuln
+netstat -tlnp
+ping -c 4 8.8.8.8
+cat /etc/resolv.conf
+dig google.com</pre>
+                                <button class="btn btn-sm btn-outline-secondary use-example" data-example="network">
+                                    <i class="fas fa-copy me-1"></i> Use This Template
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="headingThree">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseThree" aria-expanded="false" aria-controls="collapseThree">
+                                Security Audit
+                            </button>
+                        </h2>
+                        <div id="collapseThree" class="accordion-collapse collapse" aria-labelledby="headingThree" data-bs-parent="#exampleTemplates">
+                            <div class="accordion-body">
+                                <pre class="bg-dark text-light p-2 rounded">sudo ls -la /etc/sudoers.d/
+sudo grep -v '^#' /etc/sudoers
+getent passwd | grep -v nologin
+ls -la /home/
+find / -perm -4000 -type f -exec ls -la {} \; 2>/dev/null
+cat /var/log/auth.log | grep -i fail | tail -20</pre>
+                                <button class="btn btn-sm btn-outline-secondary use-example" data-example="security">
+                                    <i class="fas fa-copy me-1"></i> Use This Template
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Template Details Modal -->
+<div class="modal fade" id="templateDetailsModal" tabindex="-1" aria-labelledby="templateDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="templateDetailsModalLabel">Template Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <h5 id="templateName"></h5>
+                    <p id="templateDescription" class="text-muted"></p>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Commands</label>
+                    <pre id="templateCommands" class="bg-dark text-light p-3 rounded"></pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Template Confirmation Modal -->
+<div class="modal fade" id="deleteTemplateModal" tabindex="-1" aria-labelledby="deleteTemplateModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteTemplateModalLabel">Delete Template</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete the template "<span id="deleteTemplateName"></span>"?</p>
+                <p class="text-danger">This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteTemplate">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // DataTable initialization
+    const templatesTable = new DataTable('#templatesTable', {
+        order: [[3, 'desc']],
+        pageLength: 10
+    });
+    
+    // View template details
+    document.querySelectorAll('.view-template').forEach(button => {
+        button.addEventListener('click', function() {
+            const templateId = this.getAttribute('data-template-id');
+            fetch(`/template/${templateId}`)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('templateName').textContent = data.name;
+                    document.getElementById('templateDescription').textContent = data.description;
+                    document.getElementById('templateCommands').textContent = data.commands;
+                    
+                    const modal = new bootstrap.Modal(document.getElementById('templateDetailsModal'));
+                    modal.show();
+                })
+                .catch(error => console.error('Error fetching template:', error));
+        });
+    });
+    
+    // Edit template
+    document.querySelectorAll('.edit-template').forEach(button => {
+        button.addEventListener('click', function() {
+            const templateId = this.getAttribute('data-template-id');
+            fetch(`/template/${templateId}`)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('name').value = data.name;
+                    document.getElementById('description').value = data.description;
+                    document.getElementById('commands').value = data.commands;
+                    
+                    // Scroll to form
+                    document.getElementById('templateForm').scrollIntoView({
+                        behavior: 'smooth'
+                    });
+                })
+                .catch(error => console.error('Error fetching template:', error));
+        });
+    });
+    
+    // Delete template
+    document.querySelectorAll('.delete-template').forEach(button => {
+        button.addEventListener('click', function() {
+            const templateId = this.getAttribute('data-template-id');
+            const templateName = this.closest('tr').querySelector('td:first-child').textContent;
+            
+            document.getElementById('deleteTemplateName').textContent = templateName;
+            document.getElementById('confirmDeleteTemplate').setAttribute('data-template-id', templateId);
+            
+            const modal = new bootstrap.Modal(document.getElementById('deleteTemplateModal'));
+            modal.show();
+        });
+    });
+    
+    // Confirm delete template
+    document.getElementById('confirmDeleteTemplate').addEventListener('click', function() {
+        const templateId = this.getAttribute('data-template-id');
+        
+        fetch(`/template/${templateId}`, {
+            method: 'DELETE'
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Close modal
+                    bootstrap.Modal.getInstance(document.getElementById('deleteTemplateModal')).hide();
+                    // Reload page
+                    window.location.reload();
+                }
+            })
+            .catch(error => console.error('Error deleting template:', error));
+    });
+    
+    // Use example template
+    document.querySelectorAll('.use-example').forEach(button => {
+        button.addEventListener('click', function() {
+            const example = this.getAttribute('data-example');
+            const nameField = document.getElementById('name');
+            const descriptionField = document.getElementById('description');
+            const commandsField = document.getElementById('commands');
+            
+            switch (example) {
+                case 'basic':
+                    nameField.value = 'Basic System Information';
+                    descriptionField.value = 'Gather basic system information from the target host';
+                    commandsField.value = `hostname
+uname -a
+uptime
+who
+free -h
+df -h
+cat /etc/os-release`;
+                    break;
+                case 'network':
+                    nameField.value = 'Network Diagnostics';
+                    descriptionField.value = 'Check network configuration and connectivity';
+                    commandsField.value = `ip addr
+ip route
+ss -tuln
+netstat -tlnp
+ping -c 4 8.8.8.8
+cat /etc/resolv.conf
+dig google.com`;
+                    break;
+                case 'security':
+                    nameField.value = 'Security Audit';
+                    descriptionField.value = 'Basic security audit of system configuration';
+                    commandsField.value = `sudo ls -la /etc/sudoers.d/
+sudo grep -v '^#' /etc/sudoers
+getent passwd | grep -v nologin
+ls -la /home/
+find / -perm -4000 -type f -exec ls -la {} \\; 2>/dev/null
+cat /var/log/auth.log | grep -i fail | tail -20`;
+                    break;
+            }
+            
+            // Scroll to form
+            document.getElementById('templateForm').scrollIntoView({
+                behavior: 'smooth'
+            });
+        });
+    });
+});
+</script>
+{% endblock %}

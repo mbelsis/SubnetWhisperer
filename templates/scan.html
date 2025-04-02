@@ -1,0 +1,261 @@
+{% extends 'base.html' %}
+
+{% block title %}Scan Subnets{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <h1><i class="fas fa-search me-2"></i> Subnet Scanner</h1>
+        <p class="lead">Configure and run SSH scans on multiple servers across your network</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <ul class="nav nav-tabs card-header-tabs" id="scanTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="manual-tab" data-bs-toggle="tab" data-bs-target="#manual" type="button" role="tab" aria-controls="manual" aria-selected="true">
+                            <i class="fas fa-edit me-1"></i> Manual Input
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="csv-tab" data-bs-toggle="tab" data-bs-target="#csv" type="button" role="tab" aria-controls="csv" aria-selected="false">
+                            <i class="fas fa-file-csv me-1"></i> CSV Import
+                        </button>
+                    </li>
+                </ul>
+            </div>
+            <div class="card-body">
+                <div class="tab-content" id="scanTabsContent">
+                    <!-- Manual Input Tab -->
+                    <div class="tab-pane fade show active" id="manual" role="tabpanel" aria-labelledby="manual-tab">
+                        <form id="scanForm" class="needs-validation" novalidate>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="subnets" class="form-label">Subnets or IP Addresses</label>
+                                    <textarea id="subnets" name="subnets" class="form-control" rows="5" required
+                                              placeholder="Enter subnets in CIDR notation (e.g., 192.168.1.0/24)&#10;Or IP ranges (e.g., 192.168.1.1-192.168.1.10)&#10;One per line or comma-separated"></textarea>
+                                    <div class="form-text">Enter subnets in CIDR notation, IP ranges, or individual IP addresses</div>
+                                    <div class="invalid-feedback">Please enter at least one subnet or IP address</div>
+                                </div>
+                                
+                                <div class="col-md-6 mb-3">
+                                    <div class="card h-100">
+                                        <div class="card-header">
+                                            <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i> Input Format Examples</h5>
+                                        </div>
+                                        <div class="card-body">
+                                            <ul class="list-group list-group-flush">
+                                                <li class="list-group-item">
+                                                    <strong>CIDR Notation:</strong> <code>192.168.1.0/24</code>
+                                                </li>
+                                                <li class="list-group-item">
+                                                    <strong>IP Range:</strong> <code>192.168.1.1-192.168.1.10</code> or <code>192.168.1.1-10</code>
+                                                </li>
+                                                <li class="list-group-item">
+                                                    <strong>Single IP:</strong> <code>192.168.1.1</code>
+                                                </li>
+                                                <li class="list-group-item">
+                                                    <strong>Multiple Entries:</strong> Separate by new lines or commas
+                                                </li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <hr class="my-4">
+                            
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label for="username" class="form-label">SSH Username</label>
+                                    <input type="text" id="username" name="username" class="form-control" required>
+                                    <div class="invalid-feedback">Please enter a username</div>
+                                </div>
+                                
+                                <div class="col-md-4 mb-3">
+                                    <label for="authType" class="form-label">Authentication Type</label>
+                                    <select id="authType" name="authType" class="form-select" required>
+                                        <option value="password" selected>Password</option>
+                                        <option value="key">SSH Key</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="col-md-4 mb-3" id="passwordField">
+                                    <label for="password" class="form-label">SSH Password</label>
+                                    <input type="password" id="password" name="password" class="form-control" required>
+                                    <div class="invalid-feedback">Please enter a password</div>
+                                </div>
+                                
+                                <div class="col-md-8 mb-3 d-none" id="privateKeyField">
+                                    <label for="privateKey" class="form-label">SSH Private Key</label>
+                                    <textarea id="privateKey" name="privateKey" class="form-control" rows="3" placeholder="Paste your private key here"></textarea>
+                                    <div class="invalid-feedback">Please enter a private key</div>
+                                </div>
+                            </div>
+                            
+                            <hr class="my-4">
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="commandTemplate" class="form-label">Command Template</label>
+                                    <select id="commandTemplate" name="commandTemplate" class="form-select">
+                                        <option value="">-- Select Template --</option>
+                                        {% for template in templates %}
+                                        <option value="{{ template.id }}">{{ template.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <div class="form-text">Select a predefined command template or enter custom commands below</div>
+                                </div>
+                                
+                                <div class="col-md-6 mb-3">
+                                    <label for="customCommands" class="form-label">Custom Commands</label>
+                                    <textarea id="customCommands" name="customCommands" class="form-control" rows="5" 
+                                              placeholder="Enter commands, one per line&#10;Example:&#10;hostname&#10;uptime&#10;df -h"></textarea>
+                                </div>
+                            </div>
+                            
+                            <hr class="my-4">
+                            
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="collectServerInfo" name="collectServerInfo">
+                                        <label class="form-check-label" for="collectServerInfo">Collect Server Information</label>
+                                    </div>
+                                    <div class="form-text">Gather detailed information about each server</div>
+                                </div>
+                                
+                                <div class="col-md-4 mb-3">
+                                    <label for="concurrency" class="form-label">Concurrency</label>
+                                    <input type="number" id="concurrency" name="concurrency" class="form-control" value="10" min="1" max="100">
+                                    <div class="form-text">Number of parallel SSH connections</div>
+                                </div>
+                                
+                                <div class="col-md-4 mb-3 d-flex align-items-end">
+                                    <button type="button" id="validateSubnets" class="btn btn-info me-2">
+                                        <i class="fas fa-check-circle me-1"></i> Validate Subnets
+                                    </button>
+                                    <span id="validationResult" class="ms-2"></span>
+                                </div>
+                            </div>
+                            
+                            <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-4">
+                                <button type="button" class="btn btn-secondary me-md-2" id="resetForm">
+                                    <i class="fas fa-undo me-1"></i> Reset
+                                </button>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-play me-1"></i> Start Scan
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                    
+                    <!-- CSV Import Tab -->
+                    <div class="tab-pane fade" id="csv" role="tabpanel" aria-labelledby="csv-tab">
+                        <form id="csvImportForm" class="needs-validation" novalidate>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="csvFile" class="form-label">CSV File</label>
+                                    <input type="file" id="csvFile" name="csvFile" class="form-control" accept=".csv" required>
+                                    <div class="form-text">Upload a CSV file containing IP addresses or subnets</div>
+                                    <div class="invalid-feedback">Please select a CSV file</div>
+                                </div>
+                                
+                                <div class="col-md-6 mb-3">
+                                    <div class="card h-100">
+                                        <div class="card-header">
+                                            <h5 class="mb-0"><i class="fas fa-table me-2"></i> CSV Format</h5>
+                                        </div>
+                                        <div class="card-body">
+                                            <p>The CSV file should have a column containing IP addresses or subnets.</p>
+                                            <p>Example CSV format:</p>
+                                            <pre class="bg-dark text-light p-2 rounded">
+ip_address,location,notes
+192.168.1.1,Server Room,Main Router
+192.168.1.0/24,Office,Employee Workstations
+10.0.0.1-10.0.0.10,Data Center,Database Servers</pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-4">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-file-import me-1"></i> Import CSV
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Scan Progress Modal -->
+<div class="modal fade" id="scanProgressModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-labelledby="scanProgressModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="scanProgressModalLabel">
+                    <i class="fas fa-spinner fa-spin me-2"></i> Scan in Progress
+                </h5>
+            </div>
+            <div class="modal-body">
+                <div class="progress mb-3">
+                    <div id="scanProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                </div>
+                
+                <div class="row text-center mb-3">
+                    <div class="col-md-4">
+                        <div class="card bg-primary text-white">
+                            <div class="card-body py-2">
+                                <h5 class="mb-0">Total IPs</h5>
+                                <h3 id="totalIPs" class="mb-0">0</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-success text-white">
+                            <div class="card-body py-2">
+                                <h5 class="mb-0">Completed</h5>
+                                <h3 id="completedIPs" class="mb-0">0</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-info text-white">
+                            <div class="card-body py-2">
+                                <h5 class="mb-0">Remaining</h5>
+                                <h3 id="remainingIPs" class="mb-0">0</h3>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <h5>Recent Activity</h5>
+                <div class="alert alert-dark">
+                    <div id="scanActivity" class="small" style="max-height: 200px; overflow-y: auto;">
+                        <div class="text-muted">Waiting for scan to start...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancelScan">
+                    <i class="fas fa-stop-circle me-1"></i> Cancel Scan
+                </button>
+                <a href="#" id="viewResults" class="btn btn-success d-none">
+                    <i class="fas fa-chart-bar me-1"></i> View Results
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/scan.js') }}"></script>
+{% endblock %}
