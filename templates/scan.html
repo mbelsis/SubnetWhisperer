@@ -31,7 +31,7 @@
                 <div class="tab-content" id="scanTabsContent">
                     <!-- Manual Input Tab -->
                     <div class="tab-pane fade show active" id="manual" role="tabpanel" aria-labelledby="manual-tab">
-                        <form id="scanForm" class="needs-validation" novalidate>
+                        <form id="scan_form" class="needs-validation" novalidate>
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label for="subnets" class="form-label">Subnets or IP Addresses</label>
@@ -68,31 +68,104 @@
                             
                             <hr class="my-4">
                             
-                            <div class="row">
-                                <div class="col-md-4 mb-3">
-                                    <label for="username" class="form-label">SSH Username</label>
-                                    <input type="text" id="username" name="username" class="form-control" required>
-                                    <div class="invalid-feedback">Please enter a username</div>
-                                </div>
-                                
-                                <div class="col-md-4 mb-3">
-                                    <label for="authType" class="form-label">Authentication Type</label>
-                                    <select id="authType" name="authType" class="form-select" required>
-                                        <option value="password" selected>Password</option>
-                                        <option value="key">SSH Key</option>
-                                    </select>
-                                </div>
-                                
-                                <div class="col-md-4 mb-3" id="passwordField">
-                                    <label for="password" class="form-label">SSH Password</label>
-                                    <input type="password" id="password" name="password" class="form-control" required>
-                                    <div class="invalid-feedback">Please enter a password</div>
-                                </div>
-                                
-                                <div class="col-md-8 mb-3 d-none" id="privateKeyField">
-                                    <label for="privateKey" class="form-label">SSH Private Key</label>
-                                    <textarea id="privateKey" name="privateKey" class="form-control" rows="3" placeholder="Paste your private key here"></textarea>
-                                    <div class="invalid-feedback">Please enter a private key</div>
+                            <div class="row mb-3">
+                                <div class="col-md-12">
+                                    <div class="card border-light">
+                                        <div class="card-header d-flex justify-content-between align-items-center">
+                                            <span>Authentication Options</span>
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" id="use_credential_sets" name="use_credential_sets">
+                                                <label class="form-check-label" for="use_credential_sets">Use Saved Credential Sets</label>
+                                            </div>
+                                        </div>
+                                        <div class="card-body">
+                                            <!-- Credential Sets Section (initially hidden) -->
+                                            <div id="credential_set_section" class="d-none">
+                                                <div class="row mb-3">
+                                                    <div class="col-md-8" id="credential_set_dropdown">
+                                                        <label for="credential_set" class="form-label">Select Credential Set</label>
+                                                        <select id="credential_set" name="credential_set" class="form-select">
+                                                            <option value="0">-- Select Credential Set --</option>
+                                                            {% for cred in credential_sets %}
+                                                                <option value="{{ cred.id }}">{{ cred.username }} ({{ cred.auth_type|title }}) - {{ cred.description or 'No description' }}</option>
+                                                            {% endfor %}
+                                                        </select>
+                                                        <div class="form-text">Select from your saved credential sets</div>
+                                                    </div>
+                                                    <div class="col-md-4">
+                                                        <div class="d-flex flex-column h-100 justify-content-end">
+                                                            <div class="form-check mt-4">
+                                                                <input class="form-check-input" type="checkbox" id="multiple_credentials" name="multiple_credentials">
+                                                                <label class="form-check-label" for="multiple_credentials">Try multiple credential sets</label>
+                                                                <div class="form-text">The system will try all credentials in order of priority</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="d-flex justify-content-between">
+                                                    <a href="{{ url_for('credentials') }}" class="btn btn-sm btn-outline-primary">
+                                                        <i class="fas fa-plus-circle me-1"></i> Manage Credential Sets
+                                                    </a>
+                                                    <div class="text-end">
+                                                        <span class="text-muted">Using credential sets with saved passwords/keys</span>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Info for multiple credentials (initially hidden) -->
+                                                <div id="multiple_credentials_info" class="alert alert-info mt-3 d-none">
+                                                    <i class="fas fa-info-circle me-2"></i>
+                                                    The system will try all credential sets in order of priority (highest first).
+                                                    <div class="mt-2">
+                                                        <strong>Available Credentials:</strong>
+                                                        <ul class="mb-0">
+                                                            {% for cred in credential_sets %}
+                                                                <li>{{ cred.username }} ({{ cred.auth_type|title }}) - Priority: {{ cred.priority }}</li>
+                                                            {% endfor %}
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Manual Credentials Section -->
+                                            <div id="manual_credentials_section">
+                                                <div class="row">
+                                                    <div class="col-md-4 mb-3">
+                                                        <label for="username" class="form-label">SSH Username</label>
+                                                        <input type="text" id="username" name="username" class="form-control" required>
+                                                        <div class="invalid-feedback">Please enter a username</div>
+                                                    </div>
+                                                    
+                                                    <div class="col-md-4 mb-3">
+                                                        <label for="authType" class="form-label">Authentication Type</label>
+                                                        <select id="authType" name="authType" class="form-select" required>
+                                                            <option value="password" selected>Password</option>
+                                                            <option value="key">SSH Key</option>
+                                                        </select>
+                                                    </div>
+                                                    
+                                                    <div class="col-md-4 mb-3" id="passwordField">
+                                                        <label for="password" class="form-label">SSH Password</label>
+                                                        <input type="password" id="password" name="password" class="form-control" required>
+                                                        <div class="invalid-feedback">Please enter a password</div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="row">
+                                                    <div class="col-md-8 mb-3 d-none" id="privateKeyField">
+                                                        <label for="privateKey" class="form-label">SSH Private Key</label>
+                                                        <textarea id="privateKey" name="privateKey" class="form-control" rows="3" placeholder="Paste your private key here"></textarea>
+                                                        <div class="invalid-feedback">Please enter a private key</div>
+                                                    </div>
+                                                    
+                                                    <div class="col-md-4 mb-3">
+                                                        <label for="sudoPassword" class="form-label">Sudo Password (Optional)</label>
+                                                        <input type="password" id="sudoPassword" name="sudoPassword" class="form-control">
+                                                        <div class="form-text">For executing commands that require sudo</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             
@@ -264,4 +337,5 @@ ip_address,location,notes
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/scan.js') }}"></script>
+<script src="{{ url_for('static', filename='js/scan_credentials.js') }}"></script>
 {% endblock %}

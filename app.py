@@ -56,10 +56,11 @@ def index():
 @app.route('/scan', methods=['GET', 'POST'])
 def scan():
     from forms import ScanForm
-    from models import CommandTemplate
+    from models import CommandTemplate, CredentialSet
     
     form = ScanForm()
     templates = CommandTemplate.query.all()
+    credential_sets = CredentialSet.query.order_by(CredentialSet.priority.desc()).all()
     
     # Populate form choices
     form.command_template.choices = [(t.id, t.name) for t in templates]
@@ -69,31 +70,102 @@ def scan():
         flash('Scan initiated successfully!', 'success')
         return redirect(url_for('results'))
     
-    return render_template('scan.html', form=form, templates=templates)
+    return render_template('scan.html', form=form, templates=templates, credential_sets=credential_sets)
 
 @app.route('/start_scan', methods=['POST'])
 def start_scan():
     from subnet_utils import parse_subnet_input
     from ssh_utils import start_scan_session
-    from models import ScanSession, CommandTemplate
+    from models import ScanSession, CommandTemplate, CredentialSet
     
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "No data provided"}), 400
+    # Check if data is JSON or form data
+    if request.is_json:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        # Get JSON data fields
+        subnets = data.get('subnets', '')
+        username = data.get('username', '')
+        auth_type = data.get('auth_type', 'password')
+        password = data.get('password', '') if auth_type == 'password' else None
+        private_key = data.get('private_key', '') if auth_type == 'key' else None
+        template_id = data.get('template_id')
+        custom_commands = data.get('custom_commands', '')
+        collect_server_info = bool(data.get('collect_server_info', False))
+        collect_detailed_info = bool(data.get('collect_detailed_info', False))
+        concurrency = int(data.get('concurrency', 10))
+        sudo_password = data.get('sudo_password')
+        use_credential_sets = bool(data.get('use_credential_sets', False))
+        multiple_credentials = bool(data.get('multiple_credentials', False))
+        credential_set_id = data.get('credential_set_id')
+    else:
+        # Get form data
+        subnets = request.form.get('subnets', '')
+        collect_server_info = request.form.get('collectServerInfo') == 'on'
+        collect_detailed_info = request.form.get('collectDetailedInfo') == 'on'
+        concurrency = int(request.form.get('concurrency', 10))
+        template_id = request.form.get('commandTemplate', '')
+        custom_commands = request.form.get('customCommands', '')
+        sudo_password = request.form.get('sudoPassword', '')
+        
+        # Check if using credential sets
+        use_credential_sets = request.form.get('use_credential_sets') == 'true'
+        multiple_credentials = request.form.get('multiple_credentials') == 'true'
+        credential_set_id = request.form.get('credentialSet')
     
-    subnets = data.get('subnets', '')
-    username = data.get('username', '')
-    auth_type = data.get('auth_type', 'password')
-    password = data.get('password', '') if auth_type == 'password' else None
-    private_key = data.get('private_key', '') if auth_type == 'key' else None
-    template_id = data.get('template_id')
-    collect_server_info = bool(data.get('collect_server_info', False))
-    collect_detailed_info = bool(data.get('collect_detailed_info', False))
-    concurrency = int(data.get('concurrency', 10))
+    # Authentication info initialization
+    username = None
+    auth_type = None
+    password = None
+    private_key = None
+    credential_sets_to_use = None
     
-    # Validate input
-    if not subnets or not username or (auth_type == 'password' and not password) or (auth_type == 'key' and not private_key):
-        return jsonify({"error": "Missing required fields"}), 400
+    # Handle credential sets logic
+    if use_credential_sets:
+        if not credential_set_id and not multiple_credentials:
+            return jsonify({"error": "No credential set selected"}), 400
+        
+        if multiple_credentials:
+            # Get all credential sets in priority order
+            credential_sets_to_use = CredentialSet.query.order_by(CredentialSet.priority.desc()).all()
+            if not credential_sets_to_use:
+                return jsonify({"error": "No credential sets found"}), 400
+        else:
+            # Get single credential set
+            credential_set = CredentialSet.query.get(int(credential_set_id))
+            if not credential_set:
+                return jsonify({"error": "Invalid credential set selected"}), 400
+            credential_sets_to_use = [credential_set]
+        
+        # Use first credential set for scan session record
+        username = credential_sets_to_use[0].username
+        auth_type = credential_sets_to_use[0].auth_type
+    else:
+        # Get manual credentials from form/json
+        if request.is_json:
+            username = data.get('username', '')
+            auth_type = data.get('auth_type', 'password')
+            password = data.get('password', '') if auth_type == 'password' else None
+            private_key = data.get('private_key', '') if auth_type == 'key' else None
+        else:
+            username = request.form.get('username', '')
+            auth_type = request.form.get('authType', 'password')
+            password = request.form.get('password', '') if auth_type == 'password' else None
+            private_key = request.form.get('privateKey', '') if auth_type == 'key' else None
+        
+        # Validate manual credentials
+        if not subnets:
+            return jsonify({"error": "No subnets provided"}), 400
+            
+        if not username:
+            return jsonify({"error": "Username is required"}), 400
+        
+        if auth_type == 'password' and not password:
+            return jsonify({"error": "Password is required"}), 400
+        
+        if auth_type == 'key' and not private_key:
+            return jsonify({"error": "Private key is required"}), 400
     
     # Parse subnets
     try:
@@ -103,12 +175,25 @@ def start_scan():
     except Exception as e:
         return jsonify({"error": f"Error parsing subnets: {str(e)}"}), 400
     
-    # Get command template
+    # Get commands
     commands = []
-    if template_id:
-        template = CommandTemplate.query.get(template_id)
-        if template:
-            commands = template.commands.splitlines()
+    
+    # From template
+    if template_id and template_id != '':
+        try:
+            template_id_int = int(template_id)
+            template = CommandTemplate.query.get(template_id_int)
+            if template:
+                commands = template.commands.splitlines()
+        except ValueError:
+            # Handle invalid template ID
+            pass
+    
+    # From custom commands field
+    if custom_commands:
+        if isinstance(custom_commands, str):
+            custom_cmd_list = custom_commands.splitlines()
+            commands.extend([cmd.strip() for cmd in custom_cmd_list if cmd.strip()])
     
     # Create a new scan session
     scan_session = ScanSession(
@@ -118,6 +203,18 @@ def start_scan():
         collect_detailed_info=collect_detailed_info
     )
     db.session.add(scan_session)
+    db.session.commit()
+    
+    # Create initial scan results
+    from models import ScanResult
+    for ip in ip_addresses:
+        result = ScanResult(
+            scan_session_id=scan_session.id,
+            ip_address=ip,
+            status_code='pending'
+        )
+        db.session.add(result)
+    
     db.session.commit()
     
     # Store session ID in session
@@ -133,8 +230,8 @@ def start_scan():
         commands=commands,
         collect_server_info=collect_server_info,
         collect_detailed_info=collect_detailed_info,
-        sudo_password=None,  # We can add this later in the UI
-        credential_sets=None,  # We can add credential set lookup later
+        sudo_password=sudo_password,
+        credential_sets=credential_sets_to_use,
         concurrency=concurrency
     )
     
@@ -592,6 +689,134 @@ def delete_schedule(schedule_id):
         "success": True,
         "message": f"Schedule '{scheduled_scan.name}' deleted successfully"
     })
+
+@app.route('/credentials', methods=['GET', 'POST'])
+def credentials():
+    from forms import CredentialSetForm
+    from models import CredentialSet
+    import bcrypt
+    
+    form = CredentialSetForm()
+    credential_sets = CredentialSet.query.order_by(CredentialSet.priority.desc()).all()
+    
+    if form.validate_on_submit():
+        # Create new credential set
+        credential_set = CredentialSet(
+            username=form.username.data,
+            auth_type=form.auth_type.data,
+            description=form.description.data,
+            priority=form.priority.data
+        )
+        
+        # Simple encryption (in production, use proper encryption)
+        if form.auth_type.data == 'password' and form.password.data:
+            credential_set.password_encrypted = bcrypt.hashpw(form.password.data.encode(), bcrypt.gensalt()).decode()
+        elif form.auth_type.data == 'key' and form.private_key.data:
+            credential_set.private_key_encrypted = bcrypt.hashpw(form.private_key.data.encode(), bcrypt.gensalt()).decode()
+        
+        # Sudo password (optional)
+        if form.sudo_password.data:
+            credential_set.sudo_password_encrypted = bcrypt.hashpw(form.sudo_password.data.encode(), bcrypt.gensalt()).decode()
+        
+        db.session.add(credential_set)
+        db.session.commit()
+        
+        flash('Credential set created successfully!', 'success')
+        return redirect(url_for('credentials'))
+    
+    return render_template('credentials.html', form=form, credential_sets=credential_sets)
+
+@app.route('/add_credential', methods=['POST'])
+def add_credential():
+    from forms import CredentialSetForm
+    from models import CredentialSet
+    import bcrypt
+    
+    form = CredentialSetForm()
+    
+    if form.validate_on_submit():
+        # Create new credential set
+        credential_set = CredentialSet(
+            username=form.username.data,
+            auth_type=form.auth_type.data,
+            description=form.description.data,
+            priority=form.priority.data
+        )
+        
+        # Simple encryption (in production, use proper encryption)
+        if form.auth_type.data == 'password' and form.password.data:
+            credential_set.password_encrypted = bcrypt.hashpw(form.password.data.encode(), bcrypt.gensalt()).decode()
+        elif form.auth_type.data == 'key' and form.private_key.data:
+            credential_set.private_key_encrypted = bcrypt.hashpw(form.private_key.data.encode(), bcrypt.gensalt()).decode()
+        
+        # Sudo password (optional)
+        if form.sudo_password.data:
+            credential_set.sudo_password_encrypted = bcrypt.hashpw(form.sudo_password.data.encode(), bcrypt.gensalt()).decode()
+        
+        db.session.add(credential_set)
+        db.session.commit()
+        
+        flash('Credential set created successfully!', 'success')
+    else:
+        flash('Error creating credential set: ' + str(form.errors), 'danger')
+    
+    return redirect(url_for('credentials'))
+
+@app.route('/edit_credential', methods=['POST'])
+def edit_credential():
+    from forms import CredentialSetForm
+    from models import CredentialSet
+    import bcrypt
+    
+    form = CredentialSetForm()
+    
+    if form.validate_on_submit():
+        credential_set = CredentialSet.query.get_or_404(form.id.data)
+        
+        # Update basic info
+        credential_set.username = form.username.data
+        credential_set.auth_type = form.auth_type.data
+        credential_set.description = form.description.data
+        credential_set.priority = form.priority.data
+        
+        # Update passwords/keys only if provided (not empty)
+        if form.auth_type.data == 'password' and form.password.data:
+            credential_set.password_encrypted = bcrypt.hashpw(form.password.data.encode(), bcrypt.gensalt()).decode()
+            credential_set.private_key_encrypted = None  # Clear the key if switching to password
+        elif form.auth_type.data == 'key' and form.private_key.data:
+            credential_set.private_key_encrypted = bcrypt.hashpw(form.private_key.data.encode(), bcrypt.gensalt()).decode()
+            credential_set.password_encrypted = None  # Clear the password if switching to key
+        
+        # Update sudo password if provided
+        if form.sudo_password.data:
+            credential_set.sudo_password_encrypted = bcrypt.hashpw(form.sudo_password.data.encode(), bcrypt.gensalt()).decode()
+        
+        db.session.commit()
+        flash('Credential set updated successfully!', 'success')
+    else:
+        flash('Error updating credential set: ' + str(form.errors), 'danger')
+    
+    return redirect(url_for('credentials'))
+
+@app.route('/delete_credential', methods=['POST'])
+def delete_credential():
+    from models import CredentialSet
+    
+    credential_id = request.form.get('credential_id')
+    credential_set = CredentialSet.query.get_or_404(credential_id)
+    
+    db.session.delete(credential_set)
+    db.session.commit()
+    
+    flash('Credential set deleted successfully!', 'success')
+    return redirect(url_for('credentials'))
+
+@app.route('/credential/<int:credential_id>')
+def get_credential(credential_id):
+    from models import CredentialSet
+    
+    credential_set = CredentialSet.query.get_or_404(credential_id)
+    return jsonify(credential_set.to_dict())
 
 @app.route('/settings')
 def settings():
