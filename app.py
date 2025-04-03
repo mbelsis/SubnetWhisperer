@@ -33,13 +33,20 @@ db.init_app(app)
 
 # Import routes and models after initializing app and db
 with app.app_context():
-    from models import ScanResult, CommandTemplate, ScanSession
+    from models import ScanResult, CommandTemplate, ScanSession, ScheduledScan
     import ssh_utils
     import subnet_utils
-    from forms import ScanForm, CommandTemplateForm
+    from forms import ScanForm, CommandTemplateForm, ScheduledScanForm
     
     # Create database tables
     db.create_all()
+    
+    # Run migrations if needed
+    try:
+        from migrations.scheduled_scans import migrate_database
+        migrate_database()
+    except Exception as e:
+        logger.error(f"Error running migration: {str(e)}")
 
 # Routes
 @app.route('/')
@@ -209,6 +216,191 @@ def delete_template(template_id):
     db.session.delete(template)
     db.session.commit()
     return jsonify({"success": True})
+
+@app.route('/schedules')
+def schedules():
+    from models import ScheduledScan, ScanSession
+    import sqlalchemy
+    
+    scheduled_scans = ScheduledScan.query.order_by(ScheduledScan.created_at.desc()).all()
+    
+    # Get recent scan sessions from scheduled scans
+    recent_sessions = []
+    try:
+        # Use raw SQL to get recent scan sessions from scheduled scans with join
+        recent_sessions_query = """
+        SELECT s.*, ss.name as schedule_name 
+        FROM scan_sessions s
+        JOIN scheduled_scan_sessions sss ON s.id = sss.scan_session_id
+        JOIN scheduled_scans ss ON sss.scheduled_scan_id = ss.id
+        ORDER BY s.started_at DESC
+        LIMIT 10
+        """
+        result = db.engine.execute(recent_sessions_query)
+        recent_sessions = [dict(row) for row in result]
+    except Exception as e:
+        logger.error(f"Error fetching recent scheduled scan sessions: {str(e)}")
+    
+    return render_template('schedules.html', scheduled_scans=scheduled_scans, recent_sessions=recent_sessions)
+
+@app.route('/schedules/create', methods=['GET', 'POST'])
+def create_schedule():
+    from forms import ScheduledScanForm
+    from models import CommandTemplate, ScheduledScan
+    from datetime import datetime
+    import bcrypt
+    
+    form = ScheduledScanForm()
+    
+    # Populate template choices
+    templates = CommandTemplate.query.all()
+    form.command_template.choices = [(0, 'None')] + [(t.id, t.name) for t in templates]
+    
+    if form.validate_on_submit():
+        # Process form data
+        password_encrypted = None
+        private_key_encrypted = None
+        
+        # Simple encryption (in production, use proper encryption)
+        if form.auth_type.data == 'password' and form.password.data:
+            password_encrypted = bcrypt.hashpw(form.password.data.encode(), bcrypt.gensalt()).decode()
+        elif form.auth_type.data == 'key' and form.private_key.data:
+            private_key_encrypted = bcrypt.hashpw(form.private_key.data.encode(), bcrypt.gensalt()).decode()
+        
+        # Create scheduled scan
+        scheduled_scan = ScheduledScan(
+            name=form.name.data,
+            description=form.description.data,
+            subnets=form.subnets.data,
+            username=form.username.data,
+            auth_type=form.auth_type.data,
+            password_encrypted=password_encrypted,
+            private_key_encrypted=private_key_encrypted,
+            command_template_id=form.command_template.data if form.command_template.data != 0 else None,
+            custom_commands=form.custom_commands.data,
+            collect_server_info=form.collect_server_info.data,
+            collect_detailed_info=form.collect_detailed_info.data,
+            concurrency=form.concurrency.data,
+            schedule_frequency=form.schedule_frequency.data,
+            custom_interval_minutes=form.custom_interval_minutes.data,
+            start_date=form.start_date.data,
+            end_date=form.end_date.data,
+            is_active=form.is_active.data
+        )
+        
+        # Calculate next run time
+        scheduled_scan.next_run = scheduled_scan.calculate_next_run()
+        
+        db.session.add(scheduled_scan)
+        db.session.commit()
+        
+        flash('Scheduled scan created successfully!', 'success')
+        return redirect(url_for('schedules'))
+    
+    # Set default values
+    if not form.start_date.data:
+        form.start_date.data = datetime.utcnow()
+    
+    return render_template('schedule_form.html', form=form, schedule=None)
+
+@app.route('/schedules/<int:schedule_id>', methods=['GET'])
+def view_schedule(schedule_id):
+    from models import ScheduledScan
+    
+    scheduled_scan = ScheduledScan.query.get_or_404(schedule_id)
+    return render_template('schedule_detail.html', schedule=scheduled_scan)
+
+@app.route('/schedules/<int:schedule_id>/edit', methods=['GET', 'POST'])
+def edit_schedule(schedule_id):
+    from forms import ScheduledScanForm
+    from models import ScheduledScan, CommandTemplate
+    import bcrypt
+    
+    scheduled_scan = ScheduledScan.query.get_or_404(schedule_id)
+    form = ScheduledScanForm(obj=scheduled_scan)
+    
+    # Populate template choices
+    templates = CommandTemplate.query.all()
+    form.command_template.choices = [(0, 'None')] + [(t.id, t.name) for t in templates]
+    
+    if form.validate_on_submit():
+        # Update scheduled scan from form
+        scheduled_scan.name = form.name.data
+        scheduled_scan.description = form.description.data
+        scheduled_scan.subnets = form.subnets.data
+        scheduled_scan.username = form.username.data
+        scheduled_scan.auth_type = form.auth_type.data
+        scheduled_scan.command_template_id = form.command_template.data if form.command_template.data != 0 else None
+        scheduled_scan.custom_commands = form.custom_commands.data
+        scheduled_scan.collect_server_info = form.collect_server_info.data
+        scheduled_scan.collect_detailed_info = form.collect_detailed_info.data
+        scheduled_scan.concurrency = form.concurrency.data
+        scheduled_scan.schedule_frequency = form.schedule_frequency.data
+        scheduled_scan.custom_interval_minutes = form.custom_interval_minutes.data
+        scheduled_scan.start_date = form.start_date.data
+        scheduled_scan.end_date = form.end_date.data
+        scheduled_scan.is_active = form.is_active.data
+        
+        # Handle password/key updates
+        keep_existing_password = request.form.get('keep_existing_password') == 'on'
+        keep_existing_key = request.form.get('keep_existing_key') == 'on'
+        
+        if form.auth_type.data == 'password' and not keep_existing_password and form.password.data:
+            scheduled_scan.password_encrypted = bcrypt.hashpw(form.password.data.encode(), bcrypt.gensalt()).decode()
+        elif form.auth_type.data == 'key' and not keep_existing_key and form.private_key.data:
+            scheduled_scan.private_key_encrypted = bcrypt.hashpw(form.private_key.data.encode(), bcrypt.gensalt()).decode()
+        
+        # Recalculate next run time
+        scheduled_scan.next_run = scheduled_scan.calculate_next_run()
+        
+        db.session.commit()
+        flash('Scheduled scan updated successfully!', 'success')
+        return redirect(url_for('schedules'))
+    
+    # Add property to check if private key exists
+    scheduled_scan.has_private_key = bool(scheduled_scan.private_key_encrypted)
+    
+    return render_template('schedule_form.html', form=form, schedule=scheduled_scan)
+
+@app.route('/schedules/<int:schedule_id>/activate', methods=['POST'])
+def activate_schedule(schedule_id):
+    from models import ScheduledScan
+    
+    scheduled_scan = ScheduledScan.query.get_or_404(schedule_id)
+    scheduled_scan.is_active = True
+    scheduled_scan.next_run = scheduled_scan.calculate_next_run()
+    db.session.commit()
+    
+    return jsonify({
+        "success": True,
+        "message": f"Schedule '{scheduled_scan.name}' activated successfully"
+    })
+
+@app.route('/schedules/<int:schedule_id>/deactivate', methods=['POST'])
+def deactivate_schedule(schedule_id):
+    from models import ScheduledScan
+    
+    scheduled_scan = ScheduledScan.query.get_or_404(schedule_id)
+    scheduled_scan.is_active = False
+    db.session.commit()
+    
+    return jsonify({
+        "success": True,
+        "message": f"Schedule '{scheduled_scan.name}' deactivated successfully"
+    })
+
+@app.route('/schedules/<int:schedule_id>/delete', methods=['POST'])
+def delete_schedule(schedule_id):
+    from models import ScheduledScan
+    
+    scheduled_scan = ScheduledScan.query.get_or_404(schedule_id)
+    db.session.delete(scheduled_scan)
+    db.session.commit()
+    
+    return jsonify({
+        "success": True,
+        "message": f"Schedule '{scheduled_scan.name}' deleted successfully"
+    })
 
 @app.route('/settings')
 def settings():

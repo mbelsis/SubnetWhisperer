@@ -1,0 +1,335 @@
+{% extends 'base.html' %}
+
+{% block title %}Schedule Details: {{ schedule.name }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3">Schedule Details: {{ schedule.name }}</h1>
+    <div>
+      <a href="{{ url_for('edit_schedule', schedule_id=schedule.id) }}" class="btn btn-primary">
+        <i class="bi bi-pencil"></i> Edit Schedule
+      </a>
+      <a href="{{ url_for('schedules') }}" class="btn btn-secondary">
+        <i class="bi bi-arrow-left"></i> Back to Schedules
+      </a>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-md-8">
+      <div class="card mb-4">
+        <div class="card-header">
+          <h5 class="card-title mb-0">Schedule Information</h5>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <h6 class="text-muted mb-1">Name</h6>
+              <p>{{ schedule.name }}</p>
+            </div>
+            <div class="col-md-6 mb-3">
+              <h6 class="text-muted mb-1">Status</h6>
+              <p>
+                {% if schedule.is_active %}
+                  <span class="badge bg-success">Active</span>
+                {% else %}
+                  <span class="badge bg-secondary">Inactive</span>
+                {% endif %}
+              </p>
+            </div>
+            <div class="col-md-12 mb-3">
+              <h6 class="text-muted mb-1">Description</h6>
+              <p>{{ schedule.description or 'No description provided' }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-header">
+          <h5 class="card-title mb-0">Schedule Configuration</h5>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <h6 class="text-muted mb-1">Frequency</h6>
+              <p>
+                {% if schedule.schedule_frequency == 'custom' %}
+                  Every {{ schedule.custom_interval_minutes }} minutes
+                {% else %}
+                  {{ schedule.schedule_frequency|capitalize }}
+                {% endif %}
+              </p>
+            </div>
+            <div class="col-md-6 mb-3">
+              <h6 class="text-muted mb-1">Next Run</h6>
+              <p>
+                {% if schedule.next_run %}
+                  <span class="formatted-date">{{ schedule.next_run }}</span>
+                {% else %}
+                  <span class="text-muted">Not scheduled</span>
+                {% endif %}
+              </p>
+            </div>
+            <div class="col-md-6 mb-3">
+              <h6 class="text-muted mb-1">Start Date</h6>
+              <p><span class="formatted-date">{{ schedule.start_date }}</span></p>
+            </div>
+            <div class="col-md-6 mb-3">
+              <h6 class="text-muted mb-1">End Date</h6>
+              <p>
+                {% if schedule.end_date %}
+                  <span class="formatted-date">{{ schedule.end_date }}</span>
+                {% else %}
+                  <span class="text-muted">No end date</span>
+                {% endif %}
+              </p>
+            </div>
+            <div class="col-md-6 mb-3">
+              <h6 class="text-muted mb-1">Last Run</h6>
+              <p>
+                {% if schedule.last_run %}
+                  <span class="formatted-date">{{ schedule.last_run }}</span>
+                {% else %}
+                  <span class="text-muted">Never run</span>
+                {% endif %}
+              </p>
+            </div>
+            <div class="col-md-6 mb-3">
+              <h6 class="text-muted mb-1">Created On</h6>
+              <p><span class="formatted-date">{{ schedule.created_at }}</span></p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-header">
+          <h5 class="card-title mb-0">Scan Configuration</h5>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <h6 class="text-muted mb-1">SSH Username</h6>
+              <p>{{ schedule.username }}</p>
+            </div>
+            <div class="col-md-6 mb-3">
+              <h6 class="text-muted mb-1">Authentication Type</h6>
+              <p>{{ schedule.auth_type|capitalize }}</p>
+            </div>
+            <div class="col-md-6 mb-3">
+              <h6 class="text-muted mb-1">Command Template</h6>
+              <p>
+                {% if schedule.command_template %}
+                  {{ schedule.command_template.name }}
+                {% else %}
+                  <span class="text-muted">None</span>
+                {% endif %}
+              </p>
+            </div>
+            <div class="col-md-6 mb-3">
+              <h6 class="text-muted mb-1">Concurrency</h6>
+              <p>{{ schedule.concurrency }} concurrent connections</p>
+            </div>
+            <div class="col-md-6 mb-3">
+              <h6 class="text-muted mb-1">Server Information</h6>
+              <p>
+                {% if schedule.collect_server_info %}
+                  <span class="badge bg-success">Enabled</span>
+                  {% if schedule.collect_detailed_info %}
+                    <span class="badge bg-info">Detailed</span>
+                  {% endif %}
+                {% else %}
+                  <span class="badge bg-secondary">Disabled</span>
+                {% endif %}
+              </p>
+            </div>
+          </div>
+          
+          <div class="row mt-3">
+            <div class="col-md-12 mb-3">
+              <h6 class="text-muted mb-1">Subnets</h6>
+              <pre class="bg-dark text-light p-3 rounded"><code>{{ schedule.subnets }}</code></pre>
+            </div>
+            {% if schedule.custom_commands %}
+            <div class="col-md-12 mb-3">
+              <h6 class="text-muted mb-1">Custom Commands</h6>
+              <pre class="bg-dark text-light p-3 rounded"><code>{{ schedule.custom_commands }}</code></pre>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="col-md-4">
+      <div class="card mb-4">
+        <div class="card-header">
+          <h5 class="card-title mb-0">Actions</h5>
+        </div>
+        <div class="card-body">
+          <div class="d-grid gap-2">
+            <a href="{{ url_for('edit_schedule', schedule_id=schedule.id) }}" class="btn btn-primary">
+              <i class="bi bi-pencil"></i> Edit Schedule
+            </a>
+            
+            {% if schedule.is_active %}
+            <button class="btn btn-warning toggle-schedule" data-id="{{ schedule.id }}" data-action="deactivate">
+              <i class="bi bi-pause-circle"></i> Deactivate Schedule
+            </button>
+            {% else %}
+            <button class="btn btn-success toggle-schedule" data-id="{{ schedule.id }}" data-action="activate">
+              <i class="bi bi-play-circle"></i> Activate Schedule
+            </button>
+            {% endif %}
+            
+            <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteScheduleModal">
+              <i class="bi bi-trash"></i> Delete Schedule
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h5 class="card-title mb-0">Recent Scan History</h5>
+        </div>
+        <div class="card-body">
+          {% if schedule.scan_sessions %}
+            <div class="list-group">
+              {% for session in schedule.scan_sessions[:5] %}
+                <a href="{{ url_for('scan_results', scan_id=session.id) }}" class="list-group-item list-group-item-action">
+                  <div class="d-flex w-100 justify-content-between">
+                    <h6 class="mb-1">Scan #{{ session.id }}</h6>
+                    <small class="text-muted formatted-date">{{ session.started_at }}</small>
+                  </div>
+                  <p class="mb-1">
+                    {% if session.status == 'completed' %}
+                      <span class="badge bg-success">Completed</span>
+                    {% elif session.status == 'running' %}
+                      <span class="badge bg-info">Running</span>
+                    {% else %}
+                      <span class="badge bg-danger">Failed</span>
+                    {% endif %}
+                  </p>
+                </a>
+              {% endfor %}
+            </div>
+            {% if schedule.scan_sessions|length > 5 %}
+              <div class="text-center mt-3">
+                <a href="#" class="btn btn-sm btn-outline-secondary">View All History</a>
+              </div>
+            {% endif %}
+          {% else %}
+            <div class="text-center py-4">
+              <div class="mb-3">
+                <i class="bi bi-clock-history text-muted" style="font-size: 2rem;"></i>
+              </div>
+              <p class="text-muted">No scan history available</p>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteScheduleModal" tabindex="-1" aria-labelledby="deleteScheduleModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="deleteScheduleModalLabel">Confirm Deletion</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>Are you sure you want to delete this scheduled scan? This action cannot be undone.</p>
+        <p><strong>{{ schedule.name }}</strong></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirmDelete">Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Format dates
+  document.querySelectorAll('.formatted-date').forEach(function(el) {
+    const dateStr = el.textContent.trim();
+    if (dateStr) {
+      el.textContent = new Date(dateStr).toLocaleString();
+    }
+  });
+  
+  // Schedule activation/deactivation
+  document.querySelectorAll('.toggle-schedule').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      const id = this.getAttribute('data-id');
+      const action = this.getAttribute('data-action');
+      
+      fetch(`/schedules/${id}/${action}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          showToast(data.message, 'Success', 'success');
+          setTimeout(() => window.location.reload(), 1000);
+        } else {
+          showToast(data.message, 'Error', 'danger');
+        }
+      })
+      .catch(error => {
+        showToast('An error occurred', 'Error', 'danger');
+        console.error('Error:', error);
+      });
+    });
+  });
+  
+  // Delete schedule
+  document.getElementById('confirmDelete').addEventListener('click', function() {
+    fetch(`/schedules/{{ schedule.id }}/delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    })
+    .then(response => response.json())
+    .then(data => {
+      const deleteModal = bootstrap.Modal.getInstance(document.getElementById('deleteScheduleModal'));
+      deleteModal.hide();
+      
+      if (data.success) {
+        showToast(data.message, 'Success', 'success');
+        setTimeout(() => window.location.href = "{{ url_for('schedules') }}", 1000);
+      } else {
+        showToast(data.message, 'Error', 'danger');
+      }
+    })
+    .catch(error => {
+      const deleteModal = bootstrap.Modal.getInstance(document.getElementById('deleteScheduleModal'));
+      deleteModal.hide();
+      
+      showToast('An error occurred', 'Error', 'danger');
+      console.error('Error:', error);
+    });
+  });
+});
+
+// Show toast notification
+function showToast(message, title, type) {
+  // Use bootstrap toast or create a simple alert
+  alert(`${title}: ${message}`);
+}
+</script>
+{% endblock %}

@@ -16,4 +16,5 @@ dependencies = [
     "flask-login>=0.6.3",
     "matplotlib>=3.10.1",
     "sqlalchemy>=2.0.40",
+    "bcrypt>=4.3.0",
 ]

@@ -1,0 +1,379 @@
+{% extends 'base.html' %}
+
+{% block title %}
+  {% if schedule %}Edit Scheduled Scan{% else %}Create Scheduled Scan{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="row">
+    <div class="col-lg-12">
+      <h1 class="h3 mb-4">
+        {% if schedule %}Edit Scheduled Scan: {{ schedule.name }}{% else %}Create Scheduled Scan{% endif %}
+      </h1>
+      
+      <div class="card">
+        <div class="card-body">
+          <form method="POST" id="scheduleForm" class="needs-validation" novalidate>
+            {{ form.csrf_token }}
+            
+            <div class="row mb-4">
+              <div class="col-md-12">
+                <h5>Schedule Information</h5>
+                <hr>
+              </div>
+              <div class="col-md-6 mb-3">
+                <label for="{{ form.name.id }}" class="form-label">{{ form.name.label }}</label>
+                {{ form.name(class="form-control", placeholder="Enter a name for this schedule") }}
+                {% if form.name.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.name.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+              <div class="col-md-6 mb-3">
+                <label for="{{ form.is_active.id }}" class="form-label">Status</label>
+                <div class="form-check form-switch mt-2">
+                  {{ form.is_active(class="form-check-input") }}
+                  <label class="form-check-label" for="{{ form.is_active.id }}">
+                    Active
+                  </label>
+                </div>
+                <small class="text-muted">{{ form.is_active.description }}</small>
+              </div>
+              <div class="col-md-12 mb-3">
+                <label for="{{ form.description.id }}" class="form-label">{{ form.description.label }}</label>
+                {{ form.description(class="form-control", rows=3, placeholder="Optional description for this scheduled scan") }}
+                {% if form.description.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.description.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+            
+            <div class="row mb-4">
+              <div class="col-md-12">
+                <h5>Schedule Configuration</h5>
+                <hr>
+              </div>
+              
+              <div class="col-md-4 mb-3">
+                <label for="{{ form.schedule_frequency.id }}" class="form-label">{{ form.schedule_frequency.label }}</label>
+                {{ form.schedule_frequency(class="form-control") }}
+                {% if form.schedule_frequency.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.schedule_frequency.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+              
+              <div class="col-md-4 mb-3" id="customIntervalContainer">
+                <label for="{{ form.custom_interval_minutes.id }}" class="form-label">{{ form.custom_interval_minutes.label }}</label>
+                {{ form.custom_interval_minutes(class="form-control", min=5) }}
+                <small class="text-muted">{{ form.custom_interval_minutes.description }}</small>
+                {% if form.custom_interval_minutes.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.custom_interval_minutes.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+              
+              <div class="col-md-4 mb-3">
+                <label for="{{ form.start_date.id }}" class="form-label">{{ form.start_date.label }}</label>
+                {{ form.start_date(class="form-control", type="datetime-local") }}
+                {% if form.start_date.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.start_date.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+              
+              <div class="col-md-4 mb-3">
+                <label for="{{ form.end_date.id }}" class="form-label">{{ form.end_date.label }}</label>
+                {{ form.end_date(class="form-control", type="datetime-local") }}
+                <small class="text-muted">{{ form.end_date.description }}</small>
+                {% if form.end_date.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.end_date.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+            
+            <div class="row mb-4">
+              <div class="col-md-12">
+                <h5>Scan Configuration</h5>
+                <hr>
+              </div>
+              
+              <div class="col-md-12 mb-3">
+                <label for="{{ form.subnets.id }}" class="form-label">{{ form.subnets.label }}</label>
+                {{ form.subnets(class="form-control", rows=4) }}
+                <small class="text-muted">{{ form.subnets.description }}</small>
+                {% if form.subnets.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.subnets.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+              
+              <div class="col-md-6 mb-3">
+                <label for="{{ form.username.id }}" class="form-label">{{ form.username.label }}</label>
+                {{ form.username(class="form-control") }}
+                {% if form.username.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.username.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+              
+              <div class="col-md-6 mb-3">
+                <label for="{{ form.auth_type.id }}" class="form-label">{{ form.auth_type.label }}</label>
+                {{ form.auth_type(class="form-control") }}
+                {% if form.auth_type.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.auth_type.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+              
+              <div class="col-md-12 mb-3" id="passwordContainer">
+                <label for="{{ form.password.id }}" class="form-label">{{ form.password.label }}</label>
+                {{ form.password(class="form-control") }}
+                {% if form.password.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.password.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+                {% if schedule %}
+                <div class="form-text">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="keepExistingPassword" name="keep_existing_password" checked>
+                    <label class="form-check-label" for="keepExistingPassword">
+                      Keep existing password
+                    </label>
+                  </div>
+                  <small>Uncheck to change the password</small>
+                </div>
+                {% endif %}
+              </div>
+              
+              <div class="col-md-12 mb-3" id="privateKeyContainer" style="display: none;">
+                <label for="{{ form.private_key.id }}" class="form-label">{{ form.private_key.label }}</label>
+                {{ form.private_key(class="form-control", rows=8) }}
+                <small class="text-muted">{{ form.private_key.description }}</small>
+                {% if form.private_key.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.private_key.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+                {% if schedule and schedule.has_private_key %}
+                <div class="form-text">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="keepExistingKey" name="keep_existing_key" checked>
+                    <label class="form-check-label" for="keepExistingKey">
+                      Keep existing SSH key
+                    </label>
+                  </div>
+                  <small>Uncheck to change the SSH key</small>
+                </div>
+                {% endif %}
+              </div>
+            </div>
+            
+            <div class="row mb-4">
+              <div class="col-md-12">
+                <h5>Command Configuration</h5>
+                <hr>
+              </div>
+              
+              <div class="col-md-6 mb-3">
+                <label for="{{ form.command_template.id }}" class="form-label">{{ form.command_template.label }}</label>
+                {{ form.command_template(class="form-control") }}
+                {% if form.command_template.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.command_template.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+              
+              <div class="col-md-6 mb-3">
+                <label for="{{ form.concurrency.id }}" class="form-label">{{ form.concurrency.label }}</label>
+                {{ form.concurrency(class="form-control", min=1, max=100) }}
+                <small class="text-muted">{{ form.concurrency.description }}</small>
+                {% if form.concurrency.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.concurrency.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+              
+              <div class="col-md-12 mb-3">
+                <label for="{{ form.custom_commands.id }}" class="form-label">{{ form.custom_commands.label }}</label>
+                {{ form.custom_commands(class="form-control", rows=6) }}
+                <small class="text-muted">{{ form.custom_commands.description }}</small>
+                {% if form.custom_commands.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.custom_commands.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+              
+              <div class="col-md-6">
+                <div class="form-check mb-2">
+                  {{ form.collect_server_info(class="form-check-input") }}
+                  <label class="form-check-label" for="{{ form.collect_server_info.id }}">
+                    {{ form.collect_server_info.label }}
+                  </label>
+                </div>
+              </div>
+              
+              <div class="col-md-6">
+                <div class="form-check mb-2">
+                  {{ form.collect_detailed_info(class="form-check-input") }}
+                  <label class="form-check-label" for="{{ form.collect_detailed_info.id }}">
+                    {{ form.collect_detailed_info.label }}
+                  </label>
+                  <small class="d-block text-muted">{{ form.collect_detailed_info.description }}</small>
+                </div>
+              </div>
+            </div>
+            
+            <div class="d-flex justify-content-between mt-4">
+              <a href="{{ url_for('schedules') }}" class="btn btn-secondary">Cancel</a>
+              <button type="submit" class="btn btn-primary">
+                {% if schedule %}Update Schedule{% else %}Create Schedule{% endif %}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const authTypeSelect = document.getElementById('{{ form.auth_type.id }}');
+  const passwordContainer = document.getElementById('passwordContainer');
+  const privateKeyContainer = document.getElementById('privateKeyContainer');
+  const frequencySelect = document.getElementById('{{ form.schedule_frequency.id }}');
+  const customIntervalContainer = document.getElementById('customIntervalContainer');
+  const serverInfoCheckbox = document.getElementById('{{ form.collect_server_info.id }}');
+  const detailedInfoCheckbox = document.getElementById('{{ form.collect_detailed_info.id }}');
+  
+  // Toggle password/key fields based on auth type
+  function toggleAuthFields() {
+    if (authTypeSelect.value === 'password') {
+      passwordContainer.style.display = 'block';
+      privateKeyContainer.style.display = 'none';
+    } else {
+      passwordContainer.style.display = 'none';
+      privateKeyContainer.style.display = 'block';
+    }
+  }
+  
+  // Toggle custom interval field based on frequency
+  function toggleCustomInterval() {
+    if (frequencySelect.value === 'custom') {
+      customIntervalContainer.style.display = 'block';
+    } else {
+      customIntervalContainer.style.display = 'none';
+    }
+  }
+  
+  // Disable detailed info checkbox if server info is not checked
+  function toggleDetailedInfo() {
+    detailedInfoCheckbox.disabled = !serverInfoCheckbox.checked;
+    if (!serverInfoCheckbox.checked) {
+      detailedInfoCheckbox.checked = false;
+    }
+  }
+  
+  // Keep existing password/key checkbox handler
+  {% if schedule %}
+  const keepPasswordCheckbox = document.getElementById('keepExistingPassword');
+  const passwordField = document.getElementById('{{ form.password.id }}');
+  
+  if (keepPasswordCheckbox) {
+    keepPasswordCheckbox.addEventListener('change', function() {
+      passwordField.disabled = this.checked;
+      if (this.checked) {
+        passwordField.value = '';
+      }
+    });
+    
+    // Initial state
+    passwordField.disabled = keepPasswordCheckbox.checked;
+  }
+  
+  const keepKeyCheckbox = document.getElementById('keepExistingKey');
+  const keyField = document.getElementById('{{ form.private_key.id }}');
+  
+  if (keepKeyCheckbox) {
+    keepKeyCheckbox.addEventListener('change', function() {
+      keyField.disabled = this.checked;
+      if (this.checked) {
+        keyField.value = '';
+      }
+    });
+    
+    // Initial state
+    keyField.disabled = keepKeyCheckbox.checked;
+  }
+  {% endif %}
+  
+  // Add event listeners
+  authTypeSelect.addEventListener('change', toggleAuthFields);
+  frequencySelect.addEventListener('change', toggleCustomInterval);
+  serverInfoCheckbox.addEventListener('change', toggleDetailedInfo);
+  
+  // Initialize fields
+  toggleAuthFields();
+  toggleCustomInterval();
+  toggleDetailedInfo();
+  
+  // Form validation
+  const form = document.getElementById('scheduleForm');
+  form.addEventListener('submit', function(event) {
+    if (!form.checkValidity()) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    
+    form.classList.add('was-validated');
+  });
+});
+</script>
+{% endblock %}
