@@ -132,8 +132,9 @@ class SchedulerService:
             
             # Associate this scan session with the scheduled scan
             with db.engine.connect() as conn:
+                from sqlalchemy import text
                 conn.execute(
-                    'INSERT INTO scheduled_scan_sessions (scheduled_scan_id, scan_session_id) VALUES (:scan_id, :session_id)',
+                    text('INSERT INTO scheduled_scan_sessions (scheduled_scan_id, scan_session_id) VALUES (:scan_id, :session_id)'),
                     {'scan_id': scheduled_scan.id, 'session_id': scan_session.id}
                 )
             

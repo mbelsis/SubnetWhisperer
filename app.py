@@ -227,17 +227,16 @@ def schedules():
     # Get recent scan sessions from scheduled scans
     recent_sessions = []
     try:
-        # Use raw SQL to get recent scan sessions from scheduled scans with join
+        # Since there may not be scheduled scans yet, just get regular scan sessions
         recent_sessions_query = """
-        SELECT s.*, ss.name as schedule_name 
+        SELECT s.id, s.username, s.started_at, s.status, 'Manual Scan' as schedule_name 
         FROM scan_sessions s
-        JOIN scheduled_scan_sessions sss ON s.id = sss.scan_session_id
-        JOIN scheduled_scans ss ON sss.scheduled_scan_id = ss.id
         ORDER BY s.started_at DESC
         LIMIT 10
         """
+        from sqlalchemy import text
         with db.engine.connect() as conn:
-            result = conn.execute(recent_sessions_query)
+            result = conn.execute(text(recent_sessions_query))
             recent_sessions = [dict(row) for row in result]
     except Exception as e:
         logger.error(f"Error fetching recent scheduled scan sessions: {str(e)}")
