@@ -308,14 +308,3 @@ This project is free for any use as long as you include the original copyright s
 #### Scheduled Scans Manager
 ![Scheduled Scans Manager](attached_assets/whisperer3.png)
 
-#### Main Screen
-![Main Screen](attached_assets/mainscreen1.png)
-
-#### Scan Results
-![Scan Results](attached_assets/resultsscreen.png)
-
-#### Scan Configuration
-![Scan Configuration](attached_assets/scanscreen.png)
-
-#### Scheduler Interface
-![Scheduler Interface](attached_assets/scheduler.png)
