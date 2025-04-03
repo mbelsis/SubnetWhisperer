@@ -148,6 +148,7 @@ Create reusable command templates for common operations:
 - Private keys are only used in memory and not persisted
 - Consider using key-based authentication instead of passwords
 - Ensure you have permission to scan and connect to target hosts
+- **Important**: Server information and command outputs are stored in the database without encryption. Do not store sensitive information in the database.
 
 ## Troubleshooting
 
@@ -155,6 +156,12 @@ Create reusable command templates for common operations:
 - **Slow Scanning**: Adjust concurrency based on your network and target environment
 - **Command Execution Failures**: Check sudo permissions on target hosts
 
-## License
+## Copyright and License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+**Copyright © 2025 Meletis Belsis**
+
+This project is free for any use as long as you include the original copyright statement and a link to the author's GitHub account.
+
+### Disclaimer
+
+**USE AT YOUR OWN RISK**: This application is a work in progress. Data stored in the database is not encrypted. The application may contain bugs or security vulnerabilities. By using this software, you assume all associated risks.
