@@ -54,8 +54,24 @@ subnet_whisperer/
 
 ## Installation
 
-### Option 1: Using the Setup Script
+### Prerequisites
 
+- Python 3.10 or higher
+- pip (Python package manager)
+- For SSH operations: 
+  - Linux: No additional packages needed (uses built-in SSH capabilities)
+  - macOS: No additional packages needed (uses built-in SSH capabilities)
+  - Windows: Microsoft Visual C++ 14.0 or greater is required for some dependencies
+
+### Option 1: Using the Setup Script (Recommended)
+
+The setup script will:
+- Install all required Python packages
+- Set up the SQLite database (default)
+- Create necessary directories
+- Configure basic environment variables
+
+Steps:
 1. Clone the repository
 2. Run the setup script:
    ```bash
@@ -73,11 +89,20 @@ subnet_whisperer/
    ```
 3. Install dependencies:
    ```bash
-   pip install -r requirements.txt
+   pip install flask flask-login flask-sqlalchemy flask-wtf gunicorn matplotlib pandas paramiko psycopg2-binary sqlalchemy wtforms email-validator
    ```
-4. Initialize the database:
+4. Create the instance directory:
+   ```bash
+   mkdir -p instance
+   ```
+5. Initialize the database:
    ```bash
    python migration.py
+   python -c "from app import app, db; app.app_context().push(); db.create_all()"
+   ```
+6. Create logs directory:
+   ```bash
+   mkdir -p logs
    ```
 
 ## Running the Application
@@ -90,15 +115,46 @@ The application will be available at http://localhost:5000
 
 ## Database Setup
 
-Subnet Whisperer uses SQLAlchemy with SQLite by default. The database file will be created automatically at `instance/subnet_whisperer.db` when you first run the application.
+### SQLite (Default)
 
-### Using a Different Database
+Subnet Whisperer uses SQLAlchemy with SQLite by default. The setup script automatically creates the SQLite database at `instance/subnet_whisperer.db` when you first run the application. No additional database software installation is required for the default SQLite configuration.
 
-To use a different database (e.g., PostgreSQL), set the `DATABASE_URL` environment variable:
+### PostgreSQL (Optional)
 
-```bash
-export DATABASE_URL="postgresql://username:password@localhost/subnet_whisperer"
-```
+To use PostgreSQL instead of SQLite:
+
+1. Install PostgreSQL on your system:
+   ```bash
+   # On Debian/Ubuntu
+   sudo apt-get update
+   sudo apt-get install -y postgresql postgresql-contrib
+   
+   # On CentOS/RHEL
+   sudo yum install -y postgresql postgresql-server
+   sudo postgresql-setup initdb
+   sudo systemctl start postgresql
+   ```
+
+2. Create a database and user:
+   ```bash
+   sudo -u postgres psql
+   postgres=# CREATE DATABASE subnet_whisperer;
+   postgres=# CREATE USER myuser WITH ENCRYPTED PASSWORD 'mypassword';
+   postgres=# GRANT ALL PRIVILEGES ON DATABASE subnet_whisperer TO myuser;
+   postgres=# \q
+   ```
+
+3. Set the `DATABASE_URL` environment variable:
+   ```bash
+   export DATABASE_URL="postgresql://myuser:mypassword@localhost/subnet_whisperer"
+   ```
+
+4. Run the setup script to migrate the database:
+   ```bash
+   ./setup.sh
+   ```
+
+Note: The setup script will automatically install Python packages including `psycopg2-binary`, which is required for PostgreSQL connectivity.
 
 ## Usage Guide
 
