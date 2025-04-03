@@ -12,6 +12,8 @@
     <link rel="stylesheet" href="https://cdn.datatables.net/1.11.5/css/dataTables.bootstrap5.min.css">
     <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
+    <!-- Theme CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
     {% block styles %}{% endblock %}
 </head>
 <body>
@@ -64,6 +66,13 @@
                         </a>
                     </li>
                 </ul>
+                <div class="ms-auto d-flex align-items-center">
+                    <button id="theme-toggle" class="theme-toggle btn" type="button">
+                        <i class="fas fa-sun me-1"></i>
+                        <i class="fas fa-moon me-1"></i>
+                        <span id="theme-toggle-text">Light Mode</span>
+                    </button>
+                </div>
             </div>
         </div>
     </nav>
@@ -158,6 +167,8 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom JS -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <!-- Theme JS -->
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

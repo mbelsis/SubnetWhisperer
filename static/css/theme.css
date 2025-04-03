@@ -1,0 +1,82 @@
+/* Theme transition styles */
+:root {
+  --transition-speed: 0.4s;
+}
+
+/* Apply transitions to all elements that should change with theme */
+body, .navbar, .card, .btn, .modal-content, .table, .form-control, .alert, 
+.dropdown-menu, .footer, input, textarea, select, .list-group,
+.list-group-item, .modal-header, .modal-footer, .modal-body {
+  transition: all var(--transition-speed) ease;
+}
+
+/* Light theme specific overrides */
+[data-bs-theme="light"] {
+  --bs-body-bg: #f8f9fa;
+  --bs-body-color: #212529;
+  --bs-navbar-color: rgba(0, 0, 0, 0.7);
+  --bs-card-bg: #fff;
+  --bs-secondary-bg: #eee;
+  --bs-tertiary-bg: #ddd;
+  --bs-border-color: #dee2e6;
+}
+
+/* Dark theme specific overrides */
+[data-bs-theme="dark"] {
+  --bs-body-bg: #212529;
+  --bs-body-color: #f8f9fa;
+  --bs-navbar-color: rgba(255, 255, 255, 0.7);
+  --bs-card-bg: #343a40;
+  --bs-secondary-bg: #444;
+  --bs-tertiary-bg: #555;
+  --bs-border-color: #495057;
+}
+
+/* Theme toggle button styles */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 0.35rem 0.65rem;
+  border-radius: 2rem;
+  transition: background-color var(--transition-speed) ease;
+  margin-left: 1rem;
+}
+
+[data-bs-theme="dark"] .theme-toggle {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-bs-theme="light"] .theme-toggle {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+/* Hide/show icons based on theme */
+[data-bs-theme="dark"] .theme-toggle .fa-sun {
+  display: inline-block;
+}
+
+[data-bs-theme="dark"] .theme-toggle .fa-moon {
+  display: none;
+}
+
+[data-bs-theme="light"] .theme-toggle .fa-sun {
+  display: none;
+}
+
+[data-bs-theme="light"] .theme-toggle .fa-moon {
+  display: inline-block;
+}
+
+/* Additional custom styling for better theme compatibility */
+[data-bs-theme="light"] .table {
+  color: var(--bs-body-color);
+}
+
+[data-bs-theme="light"] .card {
+  box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+[data-bs-theme="dark"] .card {
+  box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.2);
+}
