@@ -80,7 +80,8 @@ def start_scan():
     password = data.get('password', '') if auth_type == 'password' else None
     private_key = data.get('private_key', '') if auth_type == 'key' else None
     template_id = data.get('template_id')
-    collect_server_info = data.get('collect_server_info', False)
+    collect_server_info = bool(data.get('collect_server_info', False))
+    collect_detailed_info = bool(data.get('collect_detailed_info', False))
     concurrency = int(data.get('concurrency', 10))
     
     # Validate input
@@ -106,7 +107,8 @@ def start_scan():
     scan_session = ScanSession(
         username=username,
         auth_type=auth_type,
-        collect_server_info=collect_server_info
+        collect_server_info=collect_server_info,
+        collect_detailed_info=collect_detailed_info
     )
     db.session.add(scan_session)
     db.session.commit()
@@ -123,6 +125,7 @@ def start_scan():
         private_key,
         commands,
         collect_server_info,
+        collect_detailed_info,
         concurrency
     )
     

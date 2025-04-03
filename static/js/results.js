@@ -688,6 +688,112 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 }
                 
+                // Detailed Server Information Cards
+                if (serverInfo.dns_config && Array.isArray(serverInfo.dns_config)) {
+                    serverInfoHtml += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="fas fa-dns me-2"></i> DNS Configuration</h6>
+                                </div>
+                                <div class="card-body">
+                                    <pre class="bg-dark text-light p-2 rounded small">${serverInfo.dns_config.join('\n')}</pre>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                if (serverInfo.running_services && Array.isArray(serverInfo.running_services)) {
+                    // Get first 15 services max to avoid overwhelming the UI
+                    const services = serverInfo.running_services.slice(0, 15);
+                    
+                    serverInfoHtml += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="fas fa-cogs me-2"></i> Running Services</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Service</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                ${services.map(service => `<tr><td class="small">${service}</td></tr>`).join('')}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    ${serverInfo.running_services.length > 15 ? `<small class="text-muted">Showing 15 of ${serverInfo.running_services.length} services</small>` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                if (serverInfo.network_connections && Array.isArray(serverInfo.network_connections)) {
+                    serverInfoHtml += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="fas fa-exchange-alt me-2"></i> Network Connections</h6>
+                                </div>
+                                <div class="card-body">
+                                    <pre class="bg-dark text-light p-2 rounded small">${serverInfo.network_connections.join('\n')}</pre>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                if (serverInfo.ethernet_cards && Array.isArray(serverInfo.ethernet_cards)) {
+                    serverInfoHtml += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="fas fa-network-wired me-2"></i> Network Cards</h6>
+                                </div>
+                                <div class="card-body">
+                                    <pre class="bg-dark text-light p-2 rounded small">${serverInfo.ethernet_cards.join('\n')}</pre>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                if (serverInfo.default_gateway) {
+                    serverInfoHtml += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="fas fa-route me-2"></i> Default Gateway</h6>
+                                </div>
+                                <div class="card-body">
+                                    <pre class="bg-dark text-light p-2 rounded">${serverInfo.default_gateway}</pre>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                if (serverInfo.virtualization) {
+                    serverInfoHtml += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="fas fa-cloud me-2"></i> Virtualization</h6>
+                                </div>
+                                <div class="card-body">
+                                    <pre class="bg-dark text-light p-2 rounded">${serverInfo.virtualization}</pre>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
             } catch (e) {
                 serverInfoHtml = `
                     <div class="col-12">

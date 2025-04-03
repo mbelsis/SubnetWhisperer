@@ -12,8 +12,16 @@ from models import ScanResult, ScanSession
 # Configure logging
 logger = logging.getLogger(__name__)
 
-def collect_server_info(ssh_client):
-    """Collect advanced server information using SSH client"""
+def collect_server_info(ssh_client, detailed=False):
+    """Collect server information using SSH client
+    
+    Args:
+        ssh_client: Paramiko SSH client
+        detailed: Whether to collect detailed information (more commands, deeper analysis)
+    
+    Returns:
+        Dictionary containing server information
+    """
     server_info = {}
     
     try:
@@ -74,12 +82,64 @@ def collect_server_info(ssh_client):
         stdin, stdout, stderr = ssh_client.exec_command("uptime -p")
         server_info['uptime'] = stdout.read().decode().strip()
         
+        # Only collect detailed information if requested
+        if detailed:
+            # DNS configuration
+            stdin, stdout, stderr = ssh_client.exec_command("cat /etc/resolv.conf")
+            dns_info = stdout.read().decode().strip().split('\n')
+            server_info['dns_config'] = dns_info
+            
+            # Running services
+            stdin, stdout, stderr = ssh_client.exec_command("systemctl list-units --type=service --state=running")
+            services = stdout.read().decode().strip().split('\n')
+            server_info['running_services'] = services
+            
+            # Installed packages (limit to 100 to avoid huge data transfer)
+            stdin, stdout, stderr = ssh_client.exec_command("dpkg-query -l | head -100")
+            packages_info = stdout.read().decode().strip().split('\n')
+            server_info['installed_packages'] = packages_info
+            
+            # Active network connections
+            stdin, stdout, stderr = ssh_client.exec_command("ss -tuln")
+            network_connections = stdout.read().decode().strip().split('\n')
+            server_info['network_connections'] = network_connections
+            
+            # Ethernet card information
+            stdin, stdout, stderr = ssh_client.exec_command("lshw -class network -short")
+            ethernet_info = stdout.read().decode().strip().split('\n')
+            server_info['ethernet_cards'] = ethernet_info
+            
+            # User accounts
+            stdin, stdout, stderr = ssh_client.exec_command("cat /etc/passwd | grep -v nologin | grep -v false")
+            user_accounts = stdout.read().decode().strip().split('\n')
+            server_info['user_accounts'] = user_accounts
+            
+            # System load
+            stdin, stdout, stderr = ssh_client.exec_command("cat /proc/loadavg")
+            load_avg = stdout.read().decode().strip()
+            server_info['load_average'] = load_avg
+            
+            # Default gateway
+            stdin, stdout, stderr = ssh_client.exec_command("ip route | grep default")
+            default_route = stdout.read().decode().strip()
+            server_info['default_gateway'] = default_route
+            
+            # Host-based firewall status
+            stdin, stdout, stderr = ssh_client.exec_command("iptables -L -n")
+            firewall_rules = stdout.read().decode().strip().split('\n')
+            server_info['firewall_rules'] = firewall_rules
+            
+            # Check if the server is a VM
+            stdin, stdout, stderr = ssh_client.exec_command("hostnamectl | grep Virtualization")
+            virtualization = stdout.read().decode().strip()
+            server_info['virtualization'] = virtualization if virtualization else "Not detected"
+        
         return server_info
     except Exception as e:
         logger.error(f"Error collecting server info: {str(e)}")
         return {"error": str(e)}
 
-def execute_ssh_commands(ip, username, password=None, private_key=None, commands=None, collect_info=False, scan_session_id=None):
+def execute_ssh_commands(ip, username, password=None, private_key=None, commands=None, collect_info=False, collect_detailed_info=False, scan_session_id=None):
     """Execute SSH commands on a remote host and return results"""
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -157,7 +217,7 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, commands
         
         # Collect server information if requested
         if collect_info:
-            server_info = collect_server_info(client)
+            server_info = collect_server_info(client, detailed=collect_detailed_info)
             result.server_info = json.dumps(server_info)
         
         # Set overall status to success
@@ -188,12 +248,12 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, commands
     
     return result
 
-def start_scan_session(scan_session_id, ip_addresses, username, password, private_key, commands, collect_server_info, concurrency=10):
+def start_scan_session(scan_session_id, ip_addresses, username, password, private_key, commands, collect_server_info, collect_detailed_info=False, concurrency=10):
     """Start a scan session with multiple threads"""
     def scan_worker():
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             scan_args = [
-                (ip, username, password, private_key, commands, collect_server_info, scan_session_id) 
+                (ip, username, password, private_key, commands, collect_server_info, collect_detailed_info, scan_session_id) 
                 for ip in ip_addresses
             ]
             

@@ -29,6 +29,9 @@ class ScanForm(FlaskForm):
     
     collect_server_info = BooleanField('Collect Server Information', default=False)
     
+    collect_detailed_info = BooleanField('Collect Detailed Server Profile', default=False,
+                                       description='Collect comprehensive server information including network cards, IP addresses, DNS configuration, and running services')
+    
     concurrency = IntegerField('Concurrency', validators=[NumberRange(min=1, max=100)], 
                               default=10,
                               description='Number of concurrent SSH connections')

@@ -9,6 +9,7 @@ class ScanSession(db.Model):
     username = db.Column(db.String(100), nullable=False)
     auth_type = db.Column(db.String(20), nullable=False, default='password')  # 'password' or 'key'
     collect_server_info = db.Column(db.Boolean, default=False)
+    collect_detailed_info = db.Column(db.Boolean, default=False)  # For detailed server profiling
     status = db.Column(db.String(20), default='running')  # running, completed, failed
     started_at = db.Column(db.DateTime, default=datetime.utcnow)
     completed_at = db.Column(db.DateTime)
@@ -23,6 +24,7 @@ class ScanSession(db.Model):
             'username': self.username,
             'auth_type': self.auth_type,
             'collect_server_info': self.collect_server_info,
+            'collect_detailed_info': self.collect_detailed_info,
             'status': self.status,
             'started_at': self.started_at.isoformat() if self.started_at else None,
             'completed_at': self.completed_at.isoformat() if self.completed_at else None,

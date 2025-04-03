@@ -45,6 +45,20 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
+    // Toggle detailed server info availability based on basic server info checkbox
+    const collectServerInfoCheckbox = document.getElementById('collectServerInfo');
+    const collectDetailedInfoCheckbox = document.getElementById('collectDetailedInfo');
+    
+    // Initialize detailed info checkbox state
+    collectDetailedInfoCheckbox.disabled = !collectServerInfoCheckbox.checked;
+    
+    collectServerInfoCheckbox.addEventListener('change', function() {
+        collectDetailedInfoCheckbox.disabled = !this.checked;
+        if (!this.checked) {
+            collectDetailedInfoCheckbox.checked = false;
+        }
+    });
+    
     // Handle command template selection
     commandTemplateSelect.addEventListener('change', function() {
         if (this.value) {
@@ -135,6 +149,7 @@ document.addEventListener('DOMContentLoaded', function() {
             template_id: commandTemplateSelect.value || null,
             custom_commands: customCommandsTextarea.value.trim(),
             collect_server_info: document.getElementById('collectServerInfo').checked,
+            collect_detailed_info: document.getElementById('collectDetailedInfo').checked,
             concurrency: document.getElementById('concurrency').value
         };
         
