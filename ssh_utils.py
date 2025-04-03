@@ -4,6 +4,7 @@ import threading
 import time
 import logging
 import json
+import base64
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from app import db
@@ -11,6 +12,48 @@ from models import ScanResult, ScanSession
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+def decrypt_data(encrypted_data):
+    """
+    Decrypt sensitive data (passwords, private keys)
+    
+    Args:
+        encrypted_data: Encrypted data string
+        
+    Returns:
+        Decrypted data string
+    """
+    if not encrypted_data:
+        return None
+        
+    try:
+        # For development purposes, we're using a simple base64 encoding
+        # In a production environment, you would use proper encryption
+        return base64.b64decode(encrypted_data.encode()).decode()
+    except Exception as e:
+        logger.error(f"Error decrypting data: {str(e)}")
+        return None
+        
+def encrypt_data(data):
+    """
+    Encrypt sensitive data (passwords, private keys)
+    
+    Args:
+        data: Data string to encrypt
+        
+    Returns:
+        Encrypted data string
+    """
+    if not data:
+        return None
+        
+    try:
+        # For development purposes, we're using a simple base64 encoding
+        # In a production environment, you would use proper encryption
+        return base64.b64encode(data.encode()).decode()
+    except Exception as e:
+        logger.error(f"Error encrypting data: {str(e)}")
+        return None
 
 def collect_server_info(ssh_client, detailed=False):
     """Collect server information using SSH client
@@ -139,8 +182,24 @@ def collect_server_info(ssh_client, detailed=False):
         logger.error(f"Error collecting server info: {str(e)}")
         return {"error": str(e)}
 
-def execute_ssh_commands(ip, username, password=None, private_key=None, commands=None, collect_info=False, collect_detailed_info=False, scan_session_id=None):
-    """Execute SSH commands on a remote host and return results"""
+def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_password=None, 
+                       commands=None, collect_info=False, collect_detailed_info=False, scan_session_id=None,
+                       credential_sets=None):
+    """
+    Execute SSH commands on a remote host and return results.
+    
+    Args:
+        ip: IP address of target host
+        username: SSH username
+        password: SSH password (if using password auth)
+        private_key: SSH private key content (if using key auth)
+        sudo_password: Password for sudo commands
+        commands: List of commands to execute
+        collect_info: Whether to collect server information
+        collect_detailed_info: Whether to collect detailed server information
+        scan_session_id: ID of the scan session
+        credential_sets: List of credential sets to try (overrides username/password/private_key if provided)
+    """
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     
@@ -154,78 +213,173 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, commands
     db.session.commit()
     
     start_time = time.time()
+    connection_successful = False
+    auth_errors = []
+    used_credentials = None
     
     try:
-        # Connect to server
-        if private_key:
-            # Use private key authentication
-            import io
-            key_file = paramiko.RSAKey.from_private_key(file_obj=io.StringIO(private_key))
-            client.connect(ip, username=username, pkey=key_file, timeout=10)
-        else:
-            # Use password authentication
-            client.connect(ip, username=username, password=password, timeout=10)
-        
-        # Update SSH status
-        result.ssh_status = True
-        
-        # Test sudo access if commands are provided
-        if commands:
-            try:
-                # Try a simple sudo command to check permissions
-                stdin, stdout, stderr = client.exec_command("sudo -n true", timeout=5)
-                exit_status = stdout.channel.recv_exit_status()
-                result.sudo_status = (exit_status == 0)
-            except Exception as e:
-                logger.warning(f"Sudo check failed for {ip}: {str(e)}")
-                result.sudo_status = False
+        # If credential sets are provided, try them in order of priority
+        if credential_sets:
+            # Sort credential sets by priority (higher priority first)
+            sorted_credentials = sorted(credential_sets, key=lambda x: x.priority, reverse=True)
             
-            # Execute commands
-            command_output = []
-            all_commands_succeeded = True
-            
-            for cmd in commands:
+            for cred in sorted_credentials:
                 try:
-                    stdin, stdout, stderr = client.exec_command(cmd, timeout=30)
-                    exit_status = stdout.channel.recv_exit_status()
-                    stdout_data = stdout.read().decode('utf-8', errors='replace')
-                    stderr_data = stderr.read().decode('utf-8', errors='replace')
+                    logger.info(f"Trying credentials for user {cred.username} (auth type: {cred.auth_type})")
                     
-                    cmd_result = {
-                        'command': cmd,
-                        'exit_status': exit_status,
-                        'stdout': stdout_data,
-                        'stderr': stderr_data,
-                        'success': (exit_status == 0)
-                    }
-                    
-                    command_output.append(cmd_result)
-                    if exit_status != 0:
-                        all_commands_succeeded = False
+                    if cred.auth_type == 'key' and cred.private_key_encrypted:
+                        # Use private key authentication
+                        import io
+                        # Decrypt private key (would need to implement decryption function)
+                        private_key_data = decrypt_data(cred.private_key_encrypted)
+                        key_file = paramiko.RSAKey.from_private_key(file_obj=io.StringIO(private_key_data))
+                        client.connect(ip, username=cred.username, pkey=key_file, timeout=10)
+                        used_credentials = cred
+                        connection_successful = True
+                        break
+                    elif cred.auth_type == 'password' and cred.password_encrypted:
+                        # Use password authentication
+                        # Decrypt password (would need to implement decryption function)
+                        password_data = decrypt_data(cred.password_encrypted)
+                        client.connect(ip, username=cred.username, password=password_data, timeout=10)
+                        used_credentials = cred
+                        connection_successful = True
+                        break
+                except (paramiko.AuthenticationException, paramiko.SSHException) as e:
+                    auth_errors.append(f"Authentication failed for user {cred.username}: {str(e)}")
+                    continue
                 except Exception as e:
-                    command_output.append({
-                        'command': cmd,
-                        'exit_status': -1,
-                        'stdout': '',
-                        'stderr': str(e),
-                        'success': False
-                    })
-                    all_commands_succeeded = False
+                    auth_errors.append(f"Connection error for user {cred.username}: {str(e)}")
+                    continue
+        
+        # If no credential sets or all credential sets failed, try with the provided credentials
+        if not connection_successful:
+            try:
+                if private_key:
+                    # Use private key authentication
+                    import io
+                    key_file = paramiko.RSAKey.from_private_key(file_obj=io.StringIO(private_key))
+                    client.connect(ip, username=username, pkey=key_file, timeout=10)
+                    connection_successful = True
+                else:
+                    # Use password authentication
+                    client.connect(ip, username=username, password=password, timeout=10)
+                    connection_successful = True
+            except (paramiko.AuthenticationException, paramiko.SSHException) as e:
+                auth_errors.append(f"Authentication failed for user {username}: {str(e)}")
+            except Exception as e:
+                auth_errors.append(f"Connection error for user {username}: {str(e)}")
+        
+        # If connection was successful
+        if connection_successful:
+            # Update SSH status
+            result.ssh_status = True
             
-            result.command_status = all_commands_succeeded
-            result.command_output = json.dumps(command_output)
-        
-        # Collect server information if requested
-        if collect_info:
-            server_info = collect_server_info(client, detailed=collect_detailed_info)
-            result.server_info = json.dumps(server_info)
-        
-        # Set overall status to success
-        result.status_code = 'success'
+            # Test sudo access if commands are provided
+            if commands:
+                sudo_password_to_use = None
+                
+                # Determine which sudo password to use
+                if used_credentials and used_credentials.sudo_password_encrypted:
+                    sudo_password_to_use = decrypt_data(used_credentials.sudo_password_encrypted)
+                elif sudo_password:
+                    sudo_password_to_use = sudo_password
+                
+                try:
+                    # Try a simple sudo command to check permissions
+                    if sudo_password_to_use:
+                        # Try with password
+                        transport = client.get_transport()
+                        if transport is None:
+                            logger.error("Transport is None, cannot open session")
+                            result.sudo_status = False
+                            return result
+                            
+                        channel = transport.open_session()
+                        channel.get_pty()
+                        channel.exec_command("sudo -S -p '' echo success")
+                        channel.sendall((sudo_password_to_use + '\n').encode())
+                        output = channel.recv(1024).decode('utf-8')
+                        result.sudo_status = 'success' in output
+                    else:
+                        # Try passwordless sudo
+                        stdin, stdout, stderr = client.exec_command("sudo -n true", timeout=5)
+                        exit_status = stdout.channel.recv_exit_status()
+                        result.sudo_status = (exit_status == 0)
+                except Exception as e:
+                    logger.warning(f"Sudo check failed for {ip}: {str(e)}")
+                    result.sudo_status = False
+                
+                # Execute commands
+                command_output = []
+                all_commands_succeeded = True
+                
+                for cmd in commands:
+                    try:
+                        if cmd.startswith('sudo ') and sudo_password_to_use:
+                            # Use sudo with password for commands that need it
+                            transport = client.get_transport()
+                            if transport is None:
+                                logger.error("Transport is None, cannot open session")
+                                raise Exception("SSH transport is not available")
+                                
+                            channel = transport.open_session()
+                            channel.get_pty()
+                            channel.exec_command(cmd)
+                            channel.sendall((sudo_password_to_use + '\n').encode())
+                            stdout_data = ''
+                            stderr_data = ''
+                            
+                            while not channel.exit_status_ready():
+                                if channel.recv_ready():
+                                    stdout_data += channel.recv(1024).decode('utf-8', errors='replace')
+                                if channel.recv_stderr_ready():
+                                    stderr_data += channel.recv_stderr(1024).decode('utf-8', errors='replace')
+                            
+                            exit_status = channel.recv_exit_status()
+                        else:
+                            # Regular command execution
+                            stdin, stdout, stderr = client.exec_command(cmd, timeout=30)
+                            exit_status = stdout.channel.recv_exit_status()
+                            stdout_data = stdout.read().decode('utf-8', errors='replace')
+                            stderr_data = stderr.read().decode('utf-8', errors='replace')
+                        
+                        cmd_result = {
+                            'command': cmd,
+                            'exit_status': exit_status,
+                            'stdout': stdout_data,
+                            'stderr': stderr_data,
+                            'success': (exit_status == 0)
+                        }
+                        
+                        command_output.append(cmd_result)
+                        if exit_status != 0:
+                            all_commands_succeeded = False
+                    except Exception as e:
+                        command_output.append({
+                            'command': cmd,
+                            'exit_status': -1,
+                            'stdout': '',
+                            'stderr': str(e),
+                            'success': False
+                        })
+                        all_commands_succeeded = False
+                
+                result.command_status = all_commands_succeeded
+                result.command_output = json.dumps(command_output)
+            
+            # Collect server information if requested
+            if collect_info:
+                server_info = collect_server_info(client, detailed=collect_detailed_info)
+                result.server_info = json.dumps(server_info)
+            
+            # Set overall status to success
+            result.status_code = 'success'
+        else:
+            # If connection failed with all credentials
+            result.status_code = 'failed'
+            result.error_message = "Authentication failed with all credentials: " + "; ".join(auth_errors)
     
-    except (paramiko.AuthenticationException, paramiko.SSHException) as e:
-        result.status_code = 'failed'
-        result.error_message = f"SSH authentication failed: {str(e)}"
     except socket.timeout:
         result.status_code = 'failed'
         result.error_message = "Connection timed out"
@@ -248,12 +402,15 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, commands
     
     return result
 
-def start_scan_session(scan_session_id, ip_addresses, username, password, private_key, commands, collect_server_info, collect_detailed_info=False, concurrency=10):
+def start_scan_session(scan_session_id, ip_addresses, username, password=None, private_key=None, 
+                     commands=None, collect_server_info=False, collect_detailed_info=False, 
+                     sudo_password=None, credential_sets=None, concurrency=10):
     """Start a scan session with multiple threads"""
     def scan_worker():
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             scan_args = [
-                (ip, username, password, private_key, commands, collect_server_info, collect_detailed_info, scan_session_id) 
+                (ip, username, password, private_key, sudo_password, commands, collect_server_info, 
+                 collect_detailed_info, scan_session_id, credential_sets) 
                 for ip in ip_addresses
             ]
             

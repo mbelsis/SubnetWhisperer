@@ -33,7 +33,7 @@ db.init_app(app)
 
 # Import routes and models after initializing app and db
 with app.app_context():
-    from models import ScanResult, CommandTemplate, ScanSession, ScheduledScan
+    from models import ScanResult, CommandTemplate, ScanSession, ScheduledScan, CredentialSet
     import ssh_utils
     import subnet_utils
     from forms import ScanForm, CommandTemplateForm, ScheduledScanForm
@@ -125,15 +125,17 @@ def start_scan():
     
     # Start scan in background
     start_scan_session(
-        scan_session.id,
-        ip_addresses,
-        username,
-        password,
-        private_key,
-        commands,
-        collect_server_info,
-        collect_detailed_info,
-        concurrency
+        scan_session_id=scan_session.id,
+        ip_addresses=ip_addresses,
+        username=username,
+        password=password,
+        private_key=private_key,
+        commands=commands,
+        collect_server_info=collect_server_info,
+        collect_detailed_info=collect_detailed_info,
+        sudo_password=None,  # We can add this later in the UI
+        credential_sets=None,  # We can add credential set lookup later
+        concurrency=concurrency
     )
     
     return jsonify({

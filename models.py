@@ -10,6 +10,46 @@ scheduled_scan_sessions = db.Table(
     db.Column('scan_session_id', db.Integer, db.ForeignKey('scan_sessions.id'), primary_key=True)
 )
 
+# Association table for scan_sessions and credential_sets
+scan_session_credentials = db.Table(
+    'scan_session_credentials',
+    db.Column('scan_session_id', db.Integer, db.ForeignKey('scan_sessions.id'), primary_key=True),
+    db.Column('credential_set_id', db.Integer, db.ForeignKey('credential_sets.id'), primary_key=True)
+)
+
+class CredentialSet(db.Model):
+    """Model for storing multiple credential sets for SSH authentication"""
+    __tablename__ = 'credential_sets'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(100), nullable=False)
+    auth_type = db.Column(db.String(20), nullable=False, default='password')  # 'password' or 'key'
+    password_encrypted = db.Column(db.Text)
+    private_key_encrypted = db.Column(db.Text)
+    sudo_password_encrypted = db.Column(db.Text)  # For sudo commands
+    description = db.Column(db.String(255))  # Optional description
+    priority = db.Column(db.Integer, default=0)  # Priority order for trying credentials
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    scan_sessions = db.relationship('ScanSession', secondary='scan_session_credentials',
+                                  backref=db.backref('credential_sets', lazy='dynamic'))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'username': self.username,
+            'auth_type': self.auth_type,
+            'has_password': bool(self.password_encrypted),
+            'has_private_key': bool(self.private_key_encrypted),
+            'has_sudo_password': bool(self.sudo_password_encrypted),
+            'description': self.description,
+            'priority': self.priority,
+            'created_at': self.created_at.isoformat(),
+            'updated_at': self.updated_at.isoformat()
+        }
+    
 class ScheduleFrequency(str, Enum):
     HOURLY = 'hourly'
     DAILY = 'daily'
