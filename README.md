@@ -115,6 +115,18 @@ The application will be available at http://localhost:5000
 
 ## Database Setup
 
+### Understanding the Database Architecture
+
+Subnet Whisperer uses SQLAlchemy as the Object-Relational Mapping (ORM) layer to interact with databases. Here's a quick explanation of the components:
+
+- **SQLAlchemy**: This is a Python library that provides an interface between Python code and databases. It's not a database itself but a tool that allows our application to work with different database systems through the same Python API.
+
+- **Database Backends**: The application supports two database backends:
+  - SQLite (default): A file-based, lightweight database
+  - PostgreSQL (optional): A more powerful, client-server database system
+
+The application code remains the same regardless of which database backend you choose. SQLAlchemy handles the translation between Python objects and the specific database's SQL dialect.
+
 ### SQLite (Default)
 
 Subnet Whisperer uses SQLAlchemy with SQLite by default. The setup script automatically creates the SQLite database at `instance/subnet_whisperer.db` when you first run the application. No additional database software installation is required for the default SQLite configuration.
