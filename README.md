@@ -4,9 +4,11 @@
 
 A powerful web-based tool for scanning subnets, executing commands via SSH, and analyzing results with multi-threading support.
 
+
 ## Support This Project
 
 If you enjoy using this app, why not [![Buy Me a Coffee](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://buymeacoffee.com/mbelsis)
+
 
 ## Features
 
@@ -249,20 +251,6 @@ This project is free for any use as long as you include the original copyright s
 **USE AT YOUR OWN RISK**: This application is a work in progress. Data stored in the database is not encrypted. The application may contain bugs or security vulnerabilities. By using this software, you assume all associated risks.
 
 ## Screenshots
-
-### Application Screenshots
-
-#### Home Screen
-![Home Screen](attached_assets/mainscreen1.png)
-
-#### Subnet Scanner
-![Subnet Scanner](attached_assets/scanscreen.png)
-
-#### Results Screen
-![Results Screen](attached_assets/resultsscreen.png)
-
-#### Scheduled Scans
-![Scheduled Scans](attached_assets/scheduler.png)
 
 ### New UI Design
 
