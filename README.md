@@ -2,7 +2,7 @@
 
 ![Subnet Whisperer Logo](generated-icon.png)
 
-A powerful web-based tool for scanning subnets, executing commands via SSH, and analyzing results with multi-threading support.
+A powerful web-based tool for scanning subnets, executing commands via SSH, and analyzing results with multi-threading support. Featuring secure credential storage, scheduled scanning, and comprehensive server profiling capabilities.
 
 
 ## Support This Project
@@ -20,6 +20,9 @@ If you enjoy using this app, why not [![Buy Me a Coffee](https://www.buymeacoffe
 - **Export Capabilities**: Export results in CSV, JSON, or PDF format
 - **Scheduled Scans**: Set up recurring scans to automate subnet monitoring
 - **Multi-threading**: Perform parallel scanning for efficient operations
+- **Secure Credential Storage**: Store SSH credentials with Fernet symmetric encryption
+- **Multiple Credential Sets**: Save and manage multiple credential sets with auto-try functionality
+- **Customizable Theme**: Switch between dark and light mode with smooth transitions
 
 ## System Requirements
 
@@ -35,25 +38,33 @@ subnet_whisperer/
 │   └── subnet_whisperer.db
 ├── static/                    # Static assets
 │   ├── css/
-│   │   └── custom.css
+│   │   ├── custom.css        # Custom styling
+│   │   └── theme.css         # Dark/light theme support
 │   └── js/
-│       ├── main.js            # Common utility functions
-│       ├── results.js         # Results page functionality
-│       └── scan.js            # Scan page functionality
+│       ├── main.js           # Common utility functions
+│       ├── results.js        # Results page functionality
+│       ├── scan.js           # Scan page functionality
+│       └── theme.js          # Theme switching functionality
 ├── templates/                 # HTML templates
 │   ├── 404.html
 │   ├── 500.html
 │   ├── base.html             # Base template with common elements
+│   ├── credentials.html      # Credential management page
 │   ├── index.html            # Home page
 │   ├── results.html          # Results viewing page
 │   ├── scan.html             # Scan configuration page
+│   ├── schedule_form.html    # Schedule creation/editing
+│   ├── schedule_detail.html  # Schedule details
+│   ├── schedules.html        # Schedule management
 │   ├── settings.html         # Application settings
 │   └── templates.html        # Command templates management
 ├── app.py                    # Flask application and routes
+├── encryption_utils.py       # Secure encryption for credentials
 ├── forms.py                  # Form definitions
 ├── main.py                   # Application entry point
 ├── migration.py              # Database migration script
 ├── models.py                 # Database models
+├── scheduler.py              # Background scheduler for recurring scans
 ├── setup.sh                  # Installation script
 ├── ssh_utils.py              # SSH connection utilities
 └── subnet_utils.py           # Subnet parsing utilities
@@ -96,7 +107,7 @@ Steps:
    ```
 3. Install dependencies:
    ```bash
-   pip install flask flask-login flask-sqlalchemy flask-wtf gunicorn matplotlib pandas paramiko psycopg2-binary sqlalchemy wtforms email-validator
+   pip install flask flask-login flask-sqlalchemy flask-wtf gunicorn matplotlib pandas paramiko psycopg2-binary sqlalchemy wtforms email-validator cryptography bcrypt
    ```
 4. Create the instance directory:
    ```bash
@@ -217,7 +228,18 @@ Create reusable command templates for common operations:
 4. View detailed information for each scanned host
 5. Export results in CSV, JSON, or PDF format
 
-### 5. Setting Up Scheduled Scans
+### 5. Managing Credential Sets
+
+1. Navigate to the "Credentials" page
+2. Click "Add New Credential Set" to create a new set of credentials
+3. Enter a username and choose authentication type (password or SSH key)
+4. Enter password or paste SSH private key (will be securely encrypted)
+5. Optionally enter a sudo password for elevated commands
+6. Set a priority level for auto-try functionality (higher number = higher priority)
+7. Add a description to help identify the credential set
+8. View, edit, or delete credential sets as needed
+
+### 6. Setting Up Scheduled Scans
 
 1. Navigate to the "Schedules" page
 2. Click "New Schedule" to create a scheduled scan
@@ -226,19 +248,42 @@ Create reusable command templates for common operations:
 5. Define start and end dates (optional)
 6. Activate or deactivate schedules as needed
 
+## Security Features
+
+- **Credential Encryption**: SSH credentials are secured using Fernet symmetric encryption
+- **Key Derivation**: Encryption keys are derived from application secrets or environment variables
+- **Secure Storage**: Passwords, SSH keys, and sudo passwords are stored with proper encryption
+- **Multiple Credential Sets**: Create and manage multiple credential sets with different priority levels
+- **Auto-Try Functionality**: System can automatically try multiple credential sets in order of priority
+
+### Encryption Configuration
+
+For optimal security, set an `ENCRYPTION_KEY` environment variable:
+```bash
+export ENCRYPTION_KEY="your-secure-encryption-key"
+```
+
+Alternatively, set a `FLASK_SECRET_KEY` or `SECRET_KEY` environment variable:
+```bash
+export FLASK_SECRET_KEY="your-secure-application-secret"
+```
+
+If neither is provided, a temporary key will be generated, but credentials will need to be re-entered after application restart.
+
 ## Security Considerations
 
-- SSH credentials are transmitted securely but are not stored in the database
-- Private keys are only used in memory and not persisted
-- Consider using key-based authentication instead of passwords
+- Sensitive SSH credentials are encrypted in the database using Fernet symmetric encryption
+- SSH private keys are stored encrypted and only decrypted in memory when needed
+- Consider using key-based authentication instead of passwords for added security
 - Ensure you have permission to scan and connect to target hosts
-- **Important**: Server information and command outputs are stored in the database without encryption. Do not store sensitive information in the database.
+- **Important**: While credentials are encrypted, the server information and command outputs are stored in the database without encryption. Be cautious about what commands you run if they might return sensitive information.
 
 ## Troubleshooting
 
 - **SSH Connection Issues**: Verify connectivity, credentials, and firewall settings
 - **Slow Scanning**: Adjust concurrency based on your network and target environment
 - **Command Execution Failures**: Check sudo permissions on target hosts
+- **Encryption Issues**: If you get decryption errors after upgrading, you may need to re-enter credentials
 
 ## Copyright and License
 
@@ -248,11 +293,11 @@ This project is free for any use as long as you include the original copyright s
 
 ### Disclaimer
 
-**USE AT YOUR OWN RISK**: This application is a work in progress. Data stored in the database is not encrypted. The application may contain bugs or security vulnerabilities. By using this software, you assume all associated risks.
+**USE AT YOUR OWN RISK**: This application implements security best practices including credential encryption, but may still contain bugs or security vulnerabilities. By using this software, you assume all associated risks.
 
 ## Screenshots
 
-### New UI Design
+### Modern UI Design
 
 #### Dashboard View
 ![Dashboard View](attached_assets/whisperer1.png)
@@ -262,3 +307,15 @@ This project is free for any use as long as you include the original copyright s
 
 #### Scheduled Scans Manager
 ![Scheduled Scans Manager](attached_assets/whisperer3.png)
+
+#### Main Screen
+![Main Screen](attached_assets/mainscreen1.png)
+
+#### Scan Results
+![Scan Results](attached_assets/resultsscreen.png)
+
+#### Scan Configuration
+![Scan Configuration](attached_assets/scanscreen.png)
+
+#### Scheduler Interface
+![Scheduler Interface](attached_assets/scheduler.png)
