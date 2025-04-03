@@ -41,6 +41,8 @@ body, .navbar, .card, .btn, .modal-content, .table, .form-control, .alert,
   border-radius: 2rem;
   transition: background-color var(--transition-speed) ease;
   margin-left: 1rem;
+  color: var(--bs-navbar-color);
+  border: 1px solid transparent;
 }
 
 [data-bs-theme="dark"] .theme-toggle {
