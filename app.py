@@ -236,8 +236,9 @@ def schedules():
         ORDER BY s.started_at DESC
         LIMIT 10
         """
-        result = db.engine.execute(recent_sessions_query)
-        recent_sessions = [dict(row) for row in result]
+        with db.engine.connect() as conn:
+            result = conn.execute(recent_sessions_query)
+            recent_sessions = [dict(row) for row in result]
     except Exception as e:
         logger.error(f"Error fetching recent scheduled scan sessions: {str(e)}")
     

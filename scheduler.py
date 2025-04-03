@@ -131,10 +131,11 @@ class SchedulerService:
             db.session.commit()
             
             # Associate this scan session with the scheduled scan
-            db.engine.execute(
-                'INSERT INTO scheduled_scan_sessions (scheduled_scan_id, scan_session_id) VALUES (:scan_id, :session_id)',
-                {'scan_id': scheduled_scan.id, 'session_id': scan_session.id}
-            )
+            with db.engine.connect() as conn:
+                conn.execute(
+                    'INSERT INTO scheduled_scan_sessions (scheduled_scan_id, scan_session_id) VALUES (:scan_id, :session_id)',
+                    {'scan_id': scheduled_scan.id, 'session_id': scan_session.id}
+                )
             
             # Start scan in background
             start_scan_session(
