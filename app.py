@@ -536,7 +536,7 @@ def create_schedule():
     from forms import ScheduledScanForm
     from models import CommandTemplate, ScheduledScan
     from datetime import datetime
-    import bcrypt
+    from encryption_utils import encrypt_data
     
     form = ScheduledScanForm()
     
@@ -549,11 +549,11 @@ def create_schedule():
         password_encrypted = None
         private_key_encrypted = None
         
-        # Simple encryption (in production, use proper encryption)
+        # Use proper encryption
         if form.auth_type.data == 'password' and form.password.data:
-            password_encrypted = bcrypt.hashpw(form.password.data.encode(), bcrypt.gensalt()).decode()
+            password_encrypted = encrypt_data(form.password.data)
         elif form.auth_type.data == 'key' and form.private_key.data:
-            private_key_encrypted = bcrypt.hashpw(form.private_key.data.encode(), bcrypt.gensalt()).decode()
+            private_key_encrypted = encrypt_data(form.private_key.data)
         
         # Create scheduled scan
         scheduled_scan = ScheduledScan(
@@ -602,7 +602,7 @@ def view_schedule(schedule_id):
 def edit_schedule(schedule_id):
     from forms import ScheduledScanForm
     from models import ScheduledScan, CommandTemplate
-    import bcrypt
+    from encryption_utils import encrypt_data
     
     scheduled_scan = ScheduledScan.query.get_or_404(schedule_id)
     form = ScheduledScanForm(obj=scheduled_scan)
@@ -634,9 +634,9 @@ def edit_schedule(schedule_id):
         keep_existing_key = request.form.get('keep_existing_key') == 'on'
         
         if form.auth_type.data == 'password' and not keep_existing_password and form.password.data:
-            scheduled_scan.password_encrypted = bcrypt.hashpw(form.password.data.encode(), bcrypt.gensalt()).decode()
+            scheduled_scan.password_encrypted = encrypt_data(form.password.data)
         elif form.auth_type.data == 'key' and not keep_existing_key and form.private_key.data:
-            scheduled_scan.private_key_encrypted = bcrypt.hashpw(form.private_key.data.encode(), bcrypt.gensalt()).decode()
+            scheduled_scan.private_key_encrypted = encrypt_data(form.private_key.data)
         
         # Recalculate next run time
         scheduled_scan.next_run = scheduled_scan.calculate_next_run()
@@ -694,7 +694,7 @@ def delete_schedule(schedule_id):
 def credentials():
     from forms import CredentialSetForm
     from models import CredentialSet
-    import bcrypt
+    from encryption_utils import encrypt_data
     
     form = CredentialSetForm()
     credential_sets = CredentialSet.query.order_by(CredentialSet.priority.desc()).all()
@@ -708,15 +708,15 @@ def credentials():
             priority=form.priority.data
         )
         
-        # Simple encryption (in production, use proper encryption)
+        # Use proper encryption
         if form.auth_type.data == 'password' and form.password.data:
-            credential_set.password_encrypted = bcrypt.hashpw(form.password.data.encode(), bcrypt.gensalt()).decode()
+            credential_set.password_encrypted = encrypt_data(form.password.data)
         elif form.auth_type.data == 'key' and form.private_key.data:
-            credential_set.private_key_encrypted = bcrypt.hashpw(form.private_key.data.encode(), bcrypt.gensalt()).decode()
+            credential_set.private_key_encrypted = encrypt_data(form.private_key.data)
         
         # Sudo password (optional)
         if form.sudo_password.data:
-            credential_set.sudo_password_encrypted = bcrypt.hashpw(form.sudo_password.data.encode(), bcrypt.gensalt()).decode()
+            credential_set.sudo_password_encrypted = encrypt_data(form.sudo_password.data)
         
         db.session.add(credential_set)
         db.session.commit()
@@ -730,7 +730,7 @@ def credentials():
 def add_credential():
     from forms import CredentialSetForm
     from models import CredentialSet
-    import bcrypt
+    from encryption_utils import encrypt_data
     
     form = CredentialSetForm()
     
@@ -743,15 +743,15 @@ def add_credential():
             priority=form.priority.data
         )
         
-        # Simple encryption (in production, use proper encryption)
+        # Use proper encryption
         if form.auth_type.data == 'password' and form.password.data:
-            credential_set.password_encrypted = bcrypt.hashpw(form.password.data.encode(), bcrypt.gensalt()).decode()
+            credential_set.password_encrypted = encrypt_data(form.password.data)
         elif form.auth_type.data == 'key' and form.private_key.data:
-            credential_set.private_key_encrypted = bcrypt.hashpw(form.private_key.data.encode(), bcrypt.gensalt()).decode()
+            credential_set.private_key_encrypted = encrypt_data(form.private_key.data)
         
         # Sudo password (optional)
         if form.sudo_password.data:
-            credential_set.sudo_password_encrypted = bcrypt.hashpw(form.sudo_password.data.encode(), bcrypt.gensalt()).decode()
+            credential_set.sudo_password_encrypted = encrypt_data(form.sudo_password.data)
         
         db.session.add(credential_set)
         db.session.commit()
@@ -766,7 +766,7 @@ def add_credential():
 def edit_credential():
     from forms import CredentialSetForm
     from models import CredentialSet
-    import bcrypt
+    from encryption_utils import encrypt_data
     
     form = CredentialSetForm()
     
@@ -781,15 +781,15 @@ def edit_credential():
         
         # Update passwords/keys only if provided (not empty)
         if form.auth_type.data == 'password' and form.password.data:
-            credential_set.password_encrypted = bcrypt.hashpw(form.password.data.encode(), bcrypt.gensalt()).decode()
+            credential_set.password_encrypted = encrypt_data(form.password.data)
             credential_set.private_key_encrypted = None  # Clear the key if switching to password
         elif form.auth_type.data == 'key' and form.private_key.data:
-            credential_set.private_key_encrypted = bcrypt.hashpw(form.private_key.data.encode(), bcrypt.gensalt()).decode()
+            credential_set.private_key_encrypted = encrypt_data(form.private_key.data)
             credential_set.password_encrypted = None  # Clear the password if switching to key
         
         # Update sudo password if provided
         if form.sudo_password.data:
-            credential_set.sudo_password_encrypted = bcrypt.hashpw(form.sudo_password.data.encode(), bcrypt.gensalt()).decode()
+            credential_set.sudo_password_encrypted = encrypt_data(form.sudo_password.data)
         
         db.session.commit()
         flash('Credential set updated successfully!', 'success')

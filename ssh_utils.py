@@ -4,56 +4,14 @@ import threading
 import time
 import logging
 import json
-import base64
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from app import db
 from models import ScanResult, ScanSession
+from encryption_utils import encrypt_data, decrypt_data
 
 # Configure logging
 logger = logging.getLogger(__name__)
-
-def decrypt_data(encrypted_data):
-    """
-    Decrypt sensitive data (passwords, private keys)
-    
-    Args:
-        encrypted_data: Encrypted data string
-        
-    Returns:
-        Decrypted data string
-    """
-    if not encrypted_data:
-        return None
-        
-    try:
-        # For development purposes, we're using a simple base64 encoding
-        # In a production environment, you would use proper encryption
-        return base64.b64decode(encrypted_data.encode()).decode()
-    except Exception as e:
-        logger.error(f"Error decrypting data: {str(e)}")
-        return None
-        
-def encrypt_data(data):
-    """
-    Encrypt sensitive data (passwords, private keys)
-    
-    Args:
-        data: Data string to encrypt
-        
-    Returns:
-        Encrypted data string
-    """
-    if not data:
-        return None
-        
-    try:
-        # For development purposes, we're using a simple base64 encoding
-        # In a production environment, you would use proper encryption
-        return base64.b64encode(data.encode()).decode()
-    except Exception as e:
-        logger.error(f"Error encrypting data: {str(e)}")
-        return None
 
 def collect_server_info(ssh_client, detailed=False):
     """Collect server information using SSH client
