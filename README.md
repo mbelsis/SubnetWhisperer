@@ -4,6 +4,10 @@
 
 A powerful web-based tool for scanning subnets, executing commands via SSH, and analyzing results with multi-threading support.
 
+## Support This Project
+
+If you enjoy using this app, why not [![Buy Me a Coffee](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://buymeacoffee.com/mbelsis)
+
 ## Features
 
 - **Subnet Scanning**: Scan multiple IP addresses or subnets in parallel
@@ -246,14 +250,27 @@ This project is free for any use as long as you include the original copyright s
 
 ## Screenshots
 
-### Home Screen
+### Application Screenshots
+
+#### Home Screen
 ![Home Screen](attached_assets/mainscreen1.png)
 
-### Subnet Scanner
+#### Subnet Scanner
 ![Subnet Scanner](attached_assets/scanscreen.png)
 
-### Results Screen
+#### Results Screen
 ![Results Screen](attached_assets/resultsscreen.png)
 
-### Scheduled Scans
+#### Scheduled Scans
 ![Scheduled Scans](attached_assets/scheduler.png)
+
+### New UI Design
+
+#### Dashboard View
+![Dashboard View](attached_assets/whisperer1.png)
+
+#### Subnet Scanner Interface
+![Subnet Scanner Interface](attached_assets/whisperer2.png)
+
+#### Scheduled Scans Manager
+![Scheduled Scans Manager](attached_assets/whisperer3.png)
