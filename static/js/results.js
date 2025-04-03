@@ -90,6 +90,13 @@ document.addEventListener('DOMContentLoaded', function() {
             downloadFile(`scan_results_${document.getElementById('currentScanId').textContent}.json`, jsonContent, 'application/json');
         });
         
+        document.getElementById('exportPDF').addEventListener('click', function() {
+            if (!currentScanData) return;
+            
+            const scanId = document.getElementById('currentScanId').textContent;
+            window.location.href = `/scan_results/${scanId}/export/pdf`;
+        });
+        
         // Filters
         document.getElementById('statusFilter').addEventListener('change', applyFilters);
         document.getElementById('sudoFilter').addEventListener('change', applyFilters);
@@ -856,5 +863,68 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Error deleting scan:', error);
             showToast('Failed to delete scan', 'Error', 'danger');
         });
+    }
+
+    // Format execution time for display
+    function formatExecutionTime(time) {
+        if (!time) return 'N/A';
+        return time < 1 ? `${Math.round(time * 1000)}ms` : `${time.toFixed(2)}s`;
+    }
+    
+    // Convert results to CSV format
+    function convertToCSV(results) {
+        if (!results || results.length === 0) return '';
+        
+        // Define CSV headers
+        const headers = [
+            'IP Address',
+            'Status',
+            'SSH Status',
+            'Sudo Status',
+            'Command Status',
+            'Execution Time (s)',
+            'Error Message',
+            'Created At'
+        ];
+        
+        // Create CSV content
+        let csvContent = headers.join(',') + '\n';
+        
+        // Add data rows
+        results.forEach(result => {
+            const row = [
+                `"${result.ip_address}"`,
+                `"${result.status_code}"`,
+                result.ssh_status ? 'Yes' : 'No',
+                result.sudo_status ? 'Yes' : 'No',
+                result.command_status ? 'Yes' : 'No',
+                result.execution_time || 'N/A',
+                `"${(result.error_message || '').replace(/"/g, '""')}"`,
+                new Date(result.created_at).toISOString()
+            ];
+            
+            csvContent += row.join(',') + '\n';
+        });
+        
+        return csvContent;
+    }
+    
+    // Download file helper
+    function downloadFile(filename, content, contentType) {
+        const blob = new Blob([content], { type: contentType });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.style.display = 'none';
+        
+        document.body.appendChild(a);
+        a.click();
+        
+        setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 100);
     }
 });

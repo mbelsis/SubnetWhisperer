@@ -172,13 +172,202 @@ def results():
 
 @app.route('/scan_results/<int:scan_id>')
 def scan_results(scan_id):
-    from models import ScanResult
+    from models import ScanResult, ScanSession
     
+    scan_session = ScanSession.query.get_or_404(scan_id)
     results = ScanResult.query.filter_by(scan_session_id=scan_id).all()
+    
+    # Calculate summary statistics
+    total = len(results)
+    success_count = sum(1 for r in results if r.status_code == 'success')
+    failed_count = total - success_count
+    
     return jsonify({
         "scan_id": scan_id,
-        "results": [r.to_dict() for r in results]
+        "session": scan_session.to_dict(),
+        "results": [r.to_dict() for r in results],
+        "summary": {
+            "total": total,
+            "success": success_count,
+            "failed": failed_count,
+            "success_rate": (success_count / total * 100) if total > 0 else 0
+        }
     })
+    
+@app.route('/scan_results/<int:scan_id>/export/<format>')
+def export_results(scan_id, format):
+    """Export scan results in various formats (CSV, JSON, PDF)"""
+    from datetime import datetime
+    import csv
+    import json
+    from io import StringIO, BytesIO
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from flask import Response, make_response
+    from models import ScanResult, ScanSession
+    
+    try:
+        # Get scan session and results
+        scan_session = ScanSession.query.get_or_404(scan_id)
+        results = ScanResult.query.filter_by(scan_session_id=scan_id).all()
+        
+        # Generate timestamp for filename
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"subnet_whisperer_results_{scan_id}_{timestamp}"
+        
+        # Calculate summary statistics
+        total = len(results)
+        success_count = sum(1 for r in results if r.status_code == 'success')
+        failed_count = total - success_count
+        success_rate = (success_count / total * 100) if total > 0 else 0
+        
+        # Format based on requested format
+        if format.lower() == 'csv':
+            # Create CSV
+            output = StringIO()
+            csv_writer = csv.writer(output)
+            
+            # Write header
+            csv_writer.writerow(['IP Address', 'Status', 'SSH Status', 'Sudo Status', 'Command Status', 
+                                'Execution Time (s)', 'Error Message', 'Created At'])
+            
+            # Write data rows
+            for result in results:
+                csv_writer.writerow([
+                    result.ip_address,
+                    result.status_code,
+                    'Yes' if result.ssh_status else 'No',
+                    'Yes' if result.sudo_status else 'No',
+                    'Yes' if result.command_status else 'No',
+                    result.execution_time,
+                    result.error_message,
+                    result.created_at.strftime('%Y-%m-%d %H:%M:%S')
+                ])
+            
+            # Create response
+            response = make_response(output.getvalue())
+            response.headers["Content-Disposition"] = f"attachment; filename={filename}.csv"
+            response.headers["Content-type"] = "text/csv"
+            return response
+            
+        elif format.lower() == 'json':
+            # Create JSON
+            export_data = {
+                'scan_id': scan_id,
+                'username': scan_session.username,
+                'auth_type': scan_session.auth_type,
+                'status': scan_session.status,
+                'started_at': scan_session.started_at.strftime('%Y-%m-%d %H:%M:%S') if scan_session.started_at else None,
+                'completed_at': scan_session.completed_at.strftime('%Y-%m-%d %H:%M:%S') if scan_session.completed_at else None,
+                'summary': {
+                    'total': total,
+                    'success': success_count,
+                    'failed': failed_count,
+                    'success_rate': success_rate
+                },
+                'results': []
+            }
+            
+            # Add result details
+            for result in results:
+                export_data['results'].append({
+                    'ip_address': result.ip_address,
+                    'status_code': result.status_code,
+                    'ssh_status': result.ssh_status,
+                    'sudo_status': result.sudo_status,
+                    'command_status': result.command_status,
+                    'command_output': result.command_output,
+                    'server_info': result.server_info,
+                    'error_message': result.error_message,
+                    'execution_time': result.execution_time,
+                    'created_at': result.created_at.strftime('%Y-%m-%d %H:%M:%S')
+                })
+            
+            # Create response
+            response = make_response(json.dumps(export_data, indent=2))
+            response.headers["Content-Disposition"] = f"attachment; filename={filename}.json"
+            response.headers["Content-type"] = "application/json"
+            return response
+            
+        elif format.lower() == 'pdf':
+            # Create PDF report using matplotlib and pandas
+            buffer = BytesIO()
+            
+            # Create a pandas dataframe for the results table
+            data = {
+                'IP Address': [r.ip_address for r in results],
+                'Status': [r.status_code for r in results],
+                'SSH Status': ['Yes' if r.ssh_status else 'No' for r in results],
+                'Command Status': ['Yes' if r.command_status else 'No' for r in results],
+                'Execution Time (s)': [r.execution_time for r in results],
+            }
+            df = pd.DataFrame(data)
+            
+            # Create a summary figure
+            plt.figure(figsize=(11, 8))
+            
+            # Add a title with scan information
+            plt.suptitle(f'Subnet Whisperer Scan Results (ID: {scan_id})', fontsize=16)
+            plt.figtext(0.1, 0.92, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+            plt.figtext(0.1, 0.90, f'Username: {scan_session.username}')
+            plt.figtext(0.1, 0.88, f'Authentication: {scan_session.auth_type}')
+            plt.figtext(0.1, 0.86, f'Started: {scan_session.started_at.strftime("%Y-%m-%d %H:%M:%S") if scan_session.started_at else "N/A"}')
+            plt.figtext(0.1, 0.84, f'Completed: {scan_session.completed_at.strftime("%Y-%m-%d %H:%M:%S") if scan_session.completed_at else "N/A"}')
+            
+            # Add success/fail chart
+            plt.subplot(2, 2, 1)
+            plt.pie([success_count, failed_count], labels=['Success', 'Failed'], 
+                    autopct='%1.1f%%', colors=['#28a745', '#dc3545'])
+            plt.title('Scan Results')
+            
+            # Add status codes breakdown if we have successful results
+            status_categories = {}
+            for r in results:
+                if r.status_code not in status_categories:
+                    status_categories[r.status_code] = 0
+                status_categories[r.status_code] += 1
+            
+            plt.subplot(2, 2, 2)
+            if status_categories:
+                plt.bar(status_categories.keys(), status_categories.values())
+                plt.title('Status Breakdown')
+                plt.xticks(rotation=45)
+            
+            # Add results table
+            plt.subplot(2, 1, 2)
+            plt.axis('off')
+            if not df.empty:
+                table = plt.table(
+                    cellText=df.values[:20],  # Show only first 20 rows
+                    colLabels=df.columns,
+                    loc='center',
+                    cellLoc='center',
+                )
+                table.auto_set_font_size(False)
+                table.set_fontsize(8)
+                table.scale(1, 1.5)
+                plt.title('Scan Results (First 20 rows)')
+                
+                if len(df) > 20:
+                    plt.figtext(0.5, 0.25, f'... and {len(df) - 20} more results', 
+                             ha='center', fontsize=8, style='italic')
+            
+            # Save figure to buffer
+            plt.tight_layout(rect=[0, 0, 1, 0.8])
+            plt.savefig(buffer, format='pdf')
+            buffer.seek(0)
+            
+            # Create response
+            response = make_response(buffer.getvalue())
+            response.headers["Content-Disposition"] = f"attachment; filename={filename}.pdf"
+            response.headers["Content-type"] = "application/pdf"
+            return response
+            
+        else:
+            return jsonify({'error': 'Unsupported export format'}), 400
+            
+    except Exception as e:
+        return jsonify({'error': f'Export failed: {str(e)}'}), 500
 
 @app.route('/templates', methods=['GET', 'POST'])
 def templates():

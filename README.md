@@ -11,7 +11,8 @@ A powerful web-based tool for scanning subnets, executing commands via SSH, and 
 - **Command Execution**: Run custom commands or use predefined templates
 - **Server Profiling**: Collect basic or detailed information about remote servers
 - **Result Analysis**: View and filter scan results with charts and statistics
-- **Export Capabilities**: Export results in CSV or JSON format
+- **Export Capabilities**: Export results in CSV, JSON, or PDF format
+- **Scheduled Scans**: Set up recurring scans to automate subnet monitoring
 - **Multi-threading**: Perform parallel scanning for efficient operations
 
 ## System Requirements
@@ -208,7 +209,16 @@ Create reusable command templates for common operations:
 2. Select a scan session to view
 3. Explore scan results with filtering options
 4. View detailed information for each scanned host
-5. Export results in CSV or JSON format
+5. Export results in CSV, JSON, or PDF format
+
+### 5. Setting Up Scheduled Scans
+
+1. Navigate to the "Schedules" page
+2. Click "New Schedule" to create a scheduled scan
+3. Configure scan parameters (subnets, credentials, commands)
+4. Set the schedule frequency (hourly, daily, weekly, monthly, or custom)
+5. Define start and end dates (optional)
+6. Activate or deactivate schedules as needed
 
 ## Security Considerations
 
@@ -233,3 +243,17 @@ This project is free for any use as long as you include the original copyright s
 ### Disclaimer
 
 **USE AT YOUR OWN RISK**: This application is a work in progress. Data stored in the database is not encrypted. The application may contain bugs or security vulnerabilities. By using this software, you assume all associated risks.
+
+## Screenshots
+
+### Home Screen
+![Home Screen](attached_assets/mainscreen1.png)
+
+### Subnet Scanner
+![Subnet Scanner](attached_assets/scanscreen.png)
+
+### Results Screen
+![Results Screen](attached_assets/resultsscreen.png)
+
+### Scheduled Scans
+![Scheduled Scans](attached_assets/scheduler.png)
