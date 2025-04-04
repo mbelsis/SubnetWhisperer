@@ -9,6 +9,10 @@ from concurrent.futures import ThreadPoolExecutor
 from app import db
 from models import ScanResult, ScanSession
 from encryption_utils import encrypt_data, decrypt_data
+from security_utils import (
+    sanitize_command, validate_commands_list, get_safe_commands,
+    mask_sensitive_data, mask_command_output
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -268,11 +272,43 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_pas
                     logger.warning(f"Sudo check failed for {ip}: {str(e)}")
                     result.sudo_status = False
                 
+                # Validate all commands for security before execution
+                all_commands_valid, validation_results = validate_commands_list(commands)
+                unsafe_commands = []
+                safe_commands = []
+                
+                # Sort commands by safety
+                for i, (is_safe, cmd_or_error) in enumerate(validation_results):
+                    if is_safe:
+                        safe_commands.append(commands[i])
+                    else:
+                        unsafe_commands.append({
+                            'command': commands[i],
+                            'reason': cmd_or_error
+                        })
+                
+                # Log the unsafe commands that were rejected
+                if unsafe_commands:
+                    logger.warning(f"Blocked {len(unsafe_commands)} unsafe commands for {ip}: {json.dumps(unsafe_commands)}")
+                
                 # Execute commands
                 command_output = []
                 all_commands_succeeded = True
                 
-                for cmd in commands:
+                # Add rejected commands to output first
+                for rejected in unsafe_commands:
+                    command_output.append({
+                        'command': rejected['command'],
+                        'exit_status': -2,  # Special code for security rejection
+                        'stdout': '',
+                        'stderr': f"Command rejected due to security concerns: {rejected['reason']}",
+                        'success': False,
+                        'security_blocked': True
+                    })
+                    all_commands_succeeded = False
+                
+                # Process safe commands
+                for cmd in safe_commands:
                     try:
                         if cmd.startswith('sudo ') and sudo_password_to_use:
                             # Use sudo with password for commands that need it
@@ -302,24 +338,32 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_pas
                             stdout_data = stdout.read().decode('utf-8', errors='replace')
                             stderr_data = stderr.read().decode('utf-8', errors='replace')
                         
+                        # Mask potentially sensitive information in the output
+                        stdout_data = mask_command_output(stdout_data)
+                        stderr_data = mask_command_output(stderr_data)
+                        
                         cmd_result = {
                             'command': cmd,
                             'exit_status': exit_status,
                             'stdout': stdout_data,
                             'stderr': stderr_data,
-                            'success': (exit_status == 0)
+                            'success': (exit_status == 0),
+                            'security_blocked': False
                         }
                         
                         command_output.append(cmd_result)
                         if exit_status != 0:
                             all_commands_succeeded = False
                     except Exception as e:
+                        # Mask sensitive information in error messages
+                        error_msg = mask_sensitive_data(str(e))
                         command_output.append({
                             'command': cmd,
                             'exit_status': -1,
                             'stdout': '',
-                            'stderr': str(e),
-                            'success': False
+                            'stderr': error_msg,
+                            'success': False,
+                            'security_blocked': False
                         })
                         all_commands_succeeded = False
                 
@@ -329,7 +373,21 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_pas
             # Collect server information if requested
             if collect_info:
                 server_info = collect_server_info(client, detailed=collect_detailed_info)
-                result.server_info = json.dumps(server_info)
+                
+                # Sanitize any sensitive information in the server info before storing
+                # Process each field recursively to mask sensitive data
+                def sanitize_server_info(data):
+                    if isinstance(data, dict):
+                        return {k: sanitize_server_info(v) for k, v in data.items()}
+                    elif isinstance(data, list):
+                        return [sanitize_server_info(item) for item in data]
+                    elif isinstance(data, str):
+                        return mask_sensitive_data(data)
+                    else:
+                        return data
+                
+                sanitized_server_info = sanitize_server_info(server_info)
+                result.server_info = json.dumps(sanitized_server_info)
             
             # Set overall status to success
             result.status_code = 'success'
@@ -343,10 +401,10 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_pas
         result.error_message = "Connection timed out"
     except socket.error as e:
         result.status_code = 'failed'
-        result.error_message = f"Socket error: {str(e)}"
+        result.error_message = f"Socket error: {mask_sensitive_data(str(e))}"
     except Exception as e:
         result.status_code = 'failed'
-        result.error_message = f"Error: {str(e)}"
+        result.error_message = f"Error: {mask_sensitive_data(str(e))}"
     finally:
         # Close the SSH connection
         if client:
@@ -383,7 +441,7 @@ def start_scan_session(scan_session_id, ip_addresses, username, password=None, p
                 try:
                     future.result()  # This will raise any exceptions from the task
                 except Exception as e:
-                    logger.error(f"Thread execution error: {str(e)}")
+                    logger.error(f"Thread execution error: {mask_sensitive_data(str(e))}")
             
             # Update scan session status to completed
             with db.app.app_context():

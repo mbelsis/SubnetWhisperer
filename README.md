@@ -251,10 +251,14 @@ Create reusable command templates for common operations:
 ## Security Features
 
 - **Credential Encryption**: SSH credentials are secured using Fernet symmetric encryption
+- **Command Sanitization**: Blocks dangerous or destructive commands before they execute
+- **Sensitive Data Masking**: Automatically masks passwords, keys, and other sensitive information in logs
 - **Key Derivation**: Encryption keys are derived from application secrets or environment variables
 - **Secure Storage**: Passwords, SSH keys, and sudo passwords are stored with proper encryption
 - **Multiple Credential Sets**: Create and manage multiple credential sets with different priority levels
 - **Auto-Try Functionality**: System can automatically try multiple credential sets in order of priority
+- **Command Sanitization**: Blocks dangerous or destructive commands before they execute
+- **Sensitive Data Masking**: Automatically masks passwords, keys, and other sensitive information in logs
 
 ### Encryption Configuration
 
@@ -270,13 +274,38 @@ export FLASK_SECRET_KEY="your-secure-application-secret"
 
 If neither is provided, a temporary key will be generated, but credentials will need to be re-entered after application restart.
 
+## Security Features
+
+### Command Sanitization
+The application implements robust command sanitization to prevent dangerous commands from being executed on remote systems:
+
+- Block destructive commands (rm -rf, format operations, etc.)
+- Prevent shell command chaining and injection
+- Restrict commands targeting sensitive system files
+- Block execution of downloaded content
+- Prevent fork bombs and other denial-of-service attacks
+- Require explicit approval for privileged operations
+- Log all security-related decisions for audit purposes
+
+### Credential Protection
+- All sensitive credentials are strongly encrypted using Fernet symmetric encryption
+- Private keys and passwords are never stored in plaintext
+- Sudo passwords are securely encrypted in the database
+- Multiple key derivation options for maximum security:
+  - Direct encryption key from environment variables
+  - Derived key from application secrets using PBKDF2
+  - Fall back to secure key storage on disk with proper permissions
+- Automatic masking of sensitive information in logs and outputs
+
 ## Security Considerations
 
 - Sensitive SSH credentials are encrypted in the database using Fernet symmetric encryption
 - SSH private keys are stored encrypted and only decrypted in memory when needed
+- Command validation blocks potentially dangerous operations before they reach remote systems
+- Sensitive information is automatically masked in logs and command outputs
 - Consider using key-based authentication instead of passwords for added security
 - Ensure you have permission to scan and connect to target hosts
-- **Important**: While credentials are encrypted, the server information and command outputs are stored in the database without encryption. Be cautious about what commands you run if they might return sensitive information.
+- **Important**: While credentials are encrypted and command outputs are filtered for sensitive data, server information and non-sensitive command outputs are stored in the database without encryption. Be cautious about what commands you run if they might return sensitive information.
 
 ## Troubleshooting
 
