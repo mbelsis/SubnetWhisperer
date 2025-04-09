@@ -1,0 +1,46 @@
+# Git
+.git
+.gitignore
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Instance folder (persistent data will be mounted as volume)
+instance/
+
+# Logs folder (will be mounted as volume)
+logs/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+
+# Docker
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment files
+.env
+.env.local
+
+# Documentation
+README.md
+LICENSE
+attached_assets/
+
+# Local development files
+*.sqlite
+*.db

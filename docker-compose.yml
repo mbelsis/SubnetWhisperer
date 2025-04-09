@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./instance:/app/instance
+      - ./logs:/app/logs
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///instance/subnet_whisperer.db}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-default_dev_key_please_change_in_production}
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  db:
+    image: postgres:15
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=subnet_whisperer
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

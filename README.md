@@ -123,6 +123,103 @@ Steps:
    mkdir -p logs
    ```
 
+## Docker Deployment
+
+Subnet Whisperer can be easily deployed using Docker, which provides a consistent and isolated environment for running the application.
+
+### Option 1: Using Docker Compose (Recommended)
+
+You can also use the provided Makefile for common operations:
+
+```bash
+# Build the Docker image
+make build
+
+# Run with SQLite
+make run
+
+# Run with PostgreSQL
+make run-postgres
+
+# Stop containers
+make stop
+
+# Clean up (stop containers and remove volumes)
+make clean
+```
+
+
+This method sets up both the application and an optional PostgreSQL database:
+
+1. Make sure Docker and Docker Compose are installed on your system
+2. Run the application with SQLite (default):
+   ```bash
+   ./docker-start.sh
+   ```
+   Or with PostgreSQL:
+   ```bash
+   ./docker-start.sh postgres
+   ```
+3. Access the application at http://localhost:5000
+
+### Option 2: Using Docker directly
+
+If you prefer to run only the application container:
+
+1. Build the Docker image:
+   ```bash
+   docker build -t subnet-whisperer .
+   ```
+2. Run the container:
+   ```bash
+   docker run -p 5000:5000 -v $(pwd)/instance:/app/instance -v $(pwd)/logs:/app/logs subnet-whisperer
+   ```
+
+### Using Environment Variables with Docker
+For convenience, you can use the provided environment file template:
+
+```bash
+# Copy the example to create your own environment file
+cp .env.example .env
+
+# Edit the file with your settings
+nano .env
+
+# Run with your environment variables
+docker-compose --env-file .env up
+```
+
+
+You can configure the application with environment variables:
+
+```bash
+# Use PostgreSQL
+docker run -p 5000:5000 \
+  -e DATABASE_URL="postgresql://user:password@host/dbname" \
+  -e ENCRYPTION_KEY="your-secure-key" \
+  -e FLASK_SECRET_KEY="your-flask-secret" \
+  -v $(pwd)/instance:/app/instance \
+  -v $(pwd)/logs:/app/logs \
+  subnet-whisperer
+```
+
+### Docker Image Security
+
+The Docker image includes:
+- Minimal base image (python:3.11-slim)
+- Only necessary system dependencies
+- No development tools in the final image
+- Non-root user execution for better security
+
+### Persistent Storage
+
+The following directories are persisted as volumes:
+- `instance/`: Contains the SQLite database (if used) and encryption keys
+- `logs/`: Contains application logs
+
+When using PostgreSQL, the database data is stored in a named Docker volume.
+
+
 ## Running the Application
 
 ```bash
