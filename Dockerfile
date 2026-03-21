@@ -37,4 +37,5 @@ ENV PYTHONUNBUFFERED=1
 ENV FLASK_APP=main.py
 
 # Command to run the application with gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--reuse-port", "--reload", "main:app"]
+# Using 1 worker to prevent duplicate scheduled scan execution from multiple scheduler instances
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--reuse-port", "--reload", "main:app"]

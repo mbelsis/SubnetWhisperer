@@ -62,7 +62,7 @@ subnet_whisperer/
 ├── encryption_utils.py       # Secure encryption for credentials
 ├── forms.py                  # Form definitions
 ├── main.py                   # Application entry point
-├── migration.py              # Database migration script
+├── run_migrations.py         # Database migration script
 ├── models.py                 # Database models
 ├── scheduler.py              # Background scheduler for recurring scans
 ├── setup.sh                  # Installation script
@@ -115,7 +115,7 @@ Steps:
    ```
 5. Initialize the database:
    ```bash
-   python migration.py
+   python run_migrations.py
    python -c "from app import app, db; app.app_context().push(); db.create_all()"
    ```
 6. Create logs directory:
@@ -380,12 +380,6 @@ The application implements robust command sanitization to prevent dangerous comm
 - Prevent shell command chaining and injection
 - Restrict commands targeting sensitive system files
 - Block execution of downloaded content
-
-- All sanitization patterns are defined in the `security_utils.py` file, including:
-  - `DANGEROUS_COMMANDS`: List of specific dangerous commands that are blocked entirely
-  - `DANGEROUS_PATTERNS`: Regex patterns that match potentially dangerous command structures
-  - `RESTRICTED_COMMANDS`: Commands that require extra scrutiny or admin approval
-  - `SENSITIVE_DATA_PATTERNS`: Patterns to identify and mask sensitive information in logs and outputs
 - Prevent fork bombs and other denial-of-service attacks
 - Require explicit approval for privileged operations
 - Log all security-related decisions for audit purposes
@@ -395,6 +389,49 @@ All sanitization patterns are defined in the `security_utils.py` file, including
 - `DANGEROUS_PATTERNS`: Regex patterns that match potentially dangerous command structures
 - `RESTRICTED_COMMANDS`: Commands that require extra scrutiny or admin approval
 - `SENSITIVE_DATA_PATTERNS`: Patterns to identify and mask sensitive information in logs and outputs
+
+#### Shell Operator Restrictions
+
+As a deliberate security-over-convenience tradeoff, Subnet Whisperer **blocks all commands** containing shell operators such as `|` (pipe), `>` (redirect), `;` (semicolon), `&&` (and), and `||` (or). This prevents shell injection attacks where a malicious or accidental command could chain destructive operations onto an otherwise safe command.
+
+**Examples of commands that will be blocked:**
+
+| Command | Reason |
+|---------|--------|
+| `ps aux \| grep nginx` | Contains pipe (`\|`) |
+| `echo "hello" > /tmp/test.txt` | Contains redirect (`>`) |
+| `cd /var/log; cat syslog` | Contains semicolon (`;`) |
+| `mkdir /tmp/backup && cp file /tmp/backup/` | Contains `&&` |
+| `cat /etc/hostname \|\| echo "unknown"` | Contains `\|\|` |
+| `df -h \| grep /dev` | Contains pipe (`\|`) |
+| `dmesg \| tail -50` | Contains pipe (`\|`) |
+
+**Examples of commands that will be allowed:**
+
+| Command | Description |
+|---------|-------------|
+| `hostname -f` | Simple single command |
+| `uname -a` | System information |
+| `df -h` | Disk usage |
+| `free -m` | Memory usage |
+| `uptime` | System uptime |
+| `ls -la /var/log/` | Directory listing |
+| `cat /etc/os-release` | OS information |
+| `sudo apt list --installed` | List packages (sudo is allowed) |
+
+**Workaround for complex commands:** If you need to run commands that require pipes or redirection, create a shell script on the target server and execute it as a single command instead. For example:
+
+1. Create a script on the target server:
+   ```bash
+   echo '#!/bin/bash' > /usr/local/bin/check-nginx.sh
+   echo 'ps aux | grep nginx | grep -v grep' >> /usr/local/bin/check-nginx.sh
+   chmod +x /usr/local/bin/check-nginx.sh
+   ```
+
+2. Then use Subnet Whisperer to run:
+   ```
+   /usr/local/bin/check-nginx.sh
+   ```
 
 ### Credential Protection
 - All sensitive credentials are strongly encrypted using Fernet symmetric encryption

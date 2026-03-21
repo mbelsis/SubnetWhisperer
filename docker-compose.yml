@@ -12,9 +12,24 @@ services:
       - DATABASE_URL=${DATABASE_URL:-sqlite:///instance/subnet_whisperer.db}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-default_dev_key_please_change_in_production}
+    restart: unless-stopped
+
+  web-postgres:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./instance:/app/instance
+      - ./logs:/app/logs
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db/subnet_whisperer
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-default_dev_key_please_change_in_production}
     depends_on:
       - db
     restart: unless-stopped
+    profiles:
+      - postgres
 
   db:
     image: postgres:15
@@ -27,6 +42,8 @@ services:
     ports:
       - "5432:5432"
     restart: unless-stopped
+    profiles:
+      - postgres
 
 volumes:
   postgres_data:

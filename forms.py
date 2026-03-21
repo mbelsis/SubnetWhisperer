@@ -193,11 +193,11 @@ class CredentialSetForm(FlaskForm):
                           description='Priority for trying this credential (higher numbers = higher priority)')
     
     def validate_password(self, field):
-        """Validate that password is provided when auth_type is password"""
-        if self.auth_type.data == 'password' and not field.data:
+        """Validate that password is provided when auth_type is password (only for new credentials)"""
+        if self.auth_type.data == 'password' and not field.data and not self.id.data:
             raise ValidationError('Password is required when using password authentication')
-            
+
     def validate_private_key(self, field):
-        """Validate that private key is provided when auth_type is key"""
-        if self.auth_type.data == 'key' and not field.data:
+        """Validate that private key is provided when auth_type is key (only for new credentials)"""
+        if self.auth_type.data == 'key' and not field.data and not self.id.data:
             raise ValidationError('Private key is required when using key authentication')

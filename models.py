@@ -65,6 +65,7 @@ class ScanSession(db.Model):
     auth_type = db.Column(db.String(20), nullable=False, default='password')  # 'password' or 'key'
     collect_server_info = db.Column(db.Boolean, default=False)
     collect_detailed_info = db.Column(db.Boolean, default=False)  # For detailed server profiling
+    total_ips = db.Column(db.Integer, default=0)  # Expected number of IPs to scan
     status = db.Column(db.String(20), default='running')  # running, completed, failed
     started_at = db.Column(db.DateTime, default=datetime.utcnow)
     completed_at = db.Column(db.DateTime)

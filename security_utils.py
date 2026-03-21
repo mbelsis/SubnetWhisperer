@@ -53,8 +53,10 @@ DANGEROUS_PATTERNS = [
 ]
 
 # Commands that require extra scrutiny (e.g., admin approval)
+# Note: 'sudo' is intentionally NOT in this list - sudo commands are handled
+# separately in ssh_utils.py with proper password-based elevation.
 RESTRICTED_COMMANDS = [
-    'sudo ', 'su ', 'iptables', 'firewall-cmd',
+    'su ', 'iptables', 'firewall-cmd',
     'chmod ', 'chown ', 'chgrp ',
     'visudo', 'fdisk', 'parted',
     'systemctl', 'service ', 'systemd-',
@@ -278,7 +280,7 @@ def mask_command_output(output, mask_patterns=None):
         regex_pattern = file_pattern.replace('.', r'\.').replace('*', r'[^/\s]*')
         
         # Find file contents that might follow the file pattern
-        file_content_pattern = f"({regex_pattern})[^\n]*\n(.*(?:\n.*)*?)(?:\n\n|\Z)"
+        file_content_pattern = f"({regex_pattern})[^\n]*\n(.*(?:\n.*)*?)(?:\n\n|\\Z)"
         matches = re.finditer(file_content_pattern, masked_output, re.MULTILINE)
         
         for match in matches:

@@ -25,19 +25,19 @@ if [ -f "requirements.txt" ]; then
     pip install -r requirements.txt
 else
     echo "Installing required packages..."
-    pip install flask flask-login flask-sqlalchemy flask-wtf gunicorn matplotlib pandas paramiko psycopg2-binary sqlalchemy wtforms email-validator
+    pip install flask flask-login flask-sqlalchemy flask-wtf gunicorn matplotlib pandas paramiko psycopg2-binary sqlalchemy wtforms email-validator cryptography bcrypt
 fi
 
 # Check if database exists, if not initialize it
 if [ ! -d "instance" ] || [ ! -f "instance/subnet_whisperer.db" ]; then
     echo "Initializing database..."
-    python migration.py
+    python run_migrations.py
     # Run the application to create tables
     echo "Creating database tables..."
     python -c "from app import app, db; app.app_context().push(); db.create_all()"
 else
     echo "Running database migrations..."
-    python migration.py
+    python run_migrations.py
 fi
 
 # Create logs directory if it doesn't exist

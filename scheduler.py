@@ -10,16 +10,10 @@ from app import db, app
 from models import ScheduledScan, ScanSession
 from ssh_utils import start_scan_session
 from subnet_utils import parse_subnet_input
+from encryption_utils import decrypt_data
 
 # Configure logging
 logger = logging.getLogger(__name__)
-
-# Function to decrypt sensitive data
-def decrypt_data(encrypted_data):
-    """Decrypt sensitive data (placeholder for actual encryption)"""
-    # In a real application, you'd use proper encryption/decryption
-    # For now, we'll just return the data as is
-    return encrypted_data
 
 class SchedulerService:
     """Service for managing scheduled scans"""
@@ -125,7 +119,8 @@ class SchedulerService:
                 username=username,
                 auth_type=scheduled_scan.auth_type,
                 collect_server_info=scheduled_scan.collect_server_info,
-                collect_detailed_info=scheduled_scan.collect_detailed_info
+                collect_detailed_info=scheduled_scan.collect_detailed_info,
+                total_ips=len(ip_addresses)
             )
             db.session.add(scan_session)
             db.session.commit()
@@ -137,18 +132,19 @@ class SchedulerService:
                     text('INSERT INTO scheduled_scan_sessions (scheduled_scan_id, scan_session_id) VALUES (:scan_id, :session_id)'),
                     {'scan_id': scheduled_scan.id, 'session_id': scan_session.id}
                 )
-            
+                conn.commit()
+
             # Start scan in background
             start_scan_session(
-                scan_session.id,
-                ip_addresses,
-                username,
-                password,
-                private_key,
-                commands,
-                scheduled_scan.collect_server_info,
-                scheduled_scan.collect_detailed_info,
-                scheduled_scan.concurrency
+                scan_session_id=scan_session.id,
+                ip_addresses=ip_addresses,
+                username=username,
+                password=password,
+                private_key=private_key,
+                commands=commands,
+                collect_server_info=scheduled_scan.collect_server_info,
+                collect_detailed_info=scheduled_scan.collect_detailed_info,
+                concurrency=scheduled_scan.concurrency
             )
             
             logger.info(f"Scheduled scan {scheduled_scan.id} started with scan session {scan_session.id}")

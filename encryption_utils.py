@@ -71,7 +71,9 @@ def get_encryption_key():
                     os.makedirs(os.path.dirname(key_file_path), exist_ok=True)
                     with open(key_file_path, 'wb') as key_file:
                         key_file.write(key)
-                    os.chmod(key_file_path, 0o600)  # Secure permissions
+                    # Set secure file permissions (Unix only)
+                    if os.name != 'nt':
+                        os.chmod(key_file_path, 0o600)
                     logger.info("Saved generated encryption key to file for persistence")
                 except Exception as e:
                     logger.error(f"Could not save encryption key to file: {e}")

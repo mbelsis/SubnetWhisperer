@@ -21,7 +21,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", str(uuid.uuid4()))
 
 # Configure SQLite database
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///subnet_whisperer.db")
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///instance/subnet_whisperer.db")
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "pool_recycle": 300,
     "pool_pre_ping": True,
@@ -83,13 +83,9 @@ def start_scan():
         data = request.get_json()
         if not data:
             return jsonify({"error": "No data provided"}), 400
-        
+
         # Get JSON data fields
         subnets = data.get('subnets', '')
-        username = data.get('username', '')
-        auth_type = data.get('auth_type', 'password')
-        password = data.get('password', '') if auth_type == 'password' else None
-        private_key = data.get('private_key', '') if auth_type == 'key' else None
         template_id = data.get('template_id')
         custom_commands = data.get('custom_commands', '')
         collect_server_info = bool(data.get('collect_server_info', False))
@@ -108,19 +104,23 @@ def start_scan():
         template_id = request.form.get('commandTemplate', '')
         custom_commands = request.form.get('customCommands', '')
         sudo_password = request.form.get('sudoPassword', '')
-        
+
         # Check if using credential sets
         use_credential_sets = request.form.get('use_credential_sets') == 'true'
         multiple_credentials = request.form.get('multiple_credentials') == 'true'
         credential_set_id = request.form.get('credentialSet')
-    
+
+    # Validate subnets early
+    if not subnets:
+        return jsonify({"error": "No subnets provided"}), 400
+
     # Authentication info initialization
     username = None
     auth_type = None
     password = None
     private_key = None
     credential_sets_to_use = None
-    
+
     # Handle credential sets logic
     if use_credential_sets:
         if not credential_set_id and not multiple_credentials:
@@ -155,9 +155,6 @@ def start_scan():
             private_key = request.form.get('privateKey', '') if auth_type == 'key' else None
         
         # Validate manual credentials
-        if not subnets:
-            return jsonify({"error": "No subnets provided"}), 400
-            
         if not username:
             return jsonify({"error": "Username is required"}), 400
         
@@ -200,23 +197,12 @@ def start_scan():
         username=username,
         auth_type=auth_type,
         collect_server_info=collect_server_info,
-        collect_detailed_info=collect_detailed_info
+        collect_detailed_info=collect_detailed_info,
+        total_ips=len(ip_addresses)
     )
     db.session.add(scan_session)
     db.session.commit()
-    
-    # Create initial scan results
-    from models import ScanResult
-    for ip in ip_addresses:
-        result = ScanResult(
-            scan_session_id=scan_session.id,
-            ip_address=ip,
-            status_code='pending'
-        )
-        db.session.add(result)
-    
-    db.session.commit()
-    
+
     # Store session ID in session
     session['current_scan_id'] = scan_session.id
     
@@ -246,12 +232,12 @@ def scan_status(scan_id):
     from models import ScanSession, ScanResult
     
     scan_session = ScanSession.query.get_or_404(scan_id)
-    total_ips = ScanResult.query.filter_by(scan_session_id=scan_id).count()
+    total_ips = scan_session.total_ips or 0
     completed_ips = ScanResult.query.filter(
         ScanResult.scan_session_id == scan_id,
         ScanResult.status_code.in_(['success', 'failed'])
     ).count()
-    
+
     return jsonify({
         "scan_id": scan_id,
         "status": scan_session.status,
@@ -390,8 +376,10 @@ def export_results(scan_id, format):
             
         elif format.lower() == 'pdf':
             # Create PDF report using matplotlib and pandas
+            import matplotlib
+            matplotlib.use('Agg')
             buffer = BytesIO()
-            
+
             # Create a pandas dataframe for the results table
             data = {
                 'IP Address': [r.ip_address for r in results],
@@ -454,8 +442,9 @@ def export_results(scan_id, format):
             # Save figure to buffer
             plt.tight_layout(rect=[0, 0, 1, 0.8])
             plt.savefig(buffer, format='pdf')
+            plt.close()
             buffer.seek(0)
-            
+
             # Create response
             response = make_response(buffer.getvalue())
             response.headers["Content-Disposition"] = f"attachment; filename={filename}.pdf"
@@ -525,7 +514,7 @@ def schedules():
         from sqlalchemy import text
         with db.engine.connect() as conn:
             result = conn.execute(text(recent_sessions_query))
-            recent_sessions = [dict(row) for row in result]
+            recent_sessions = [dict(row._mapping) for row in result]
     except Exception as e:
         logger.error(f"Error fetching recent scheduled scan sessions: {str(e)}")
     

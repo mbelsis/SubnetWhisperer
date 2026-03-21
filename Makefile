@@ -4,16 +4,18 @@ build:
 	docker-compose build
 
 run:
-	export DATABASE_URL="sqlite:///instance/subnet_whisperer.db" && docker-compose up web
+	docker-compose up web
 
 run-postgres:
-	export DATABASE_URL="postgresql://postgres:postgres@db/subnet_whisperer" && docker-compose up
+	docker-compose --profile postgres up web-postgres db
 
 stop:
 	docker-compose down
+	docker-compose --profile postgres down
 
 clean: stop
 	docker-compose down -v
+	docker-compose --profile postgres down -v
 	docker system prune -f
 
 help:
