@@ -5,11 +5,6 @@
 A powerful web-based tool for scanning subnets, executing commands via SSH, and analyzing results with multi-threading support. Featuring secure credential storage, scheduled scanning, and comprehensive server profiling capabilities.
 
 
-## Support This Project
-
-If you enjoy using this app, why not [![Buy Me a Coffee](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://buymeacoffee.com/mbelsis)
-
-
 ## Features
 
 - **User Authentication**: Login-protected interface with user management and role-based access control
