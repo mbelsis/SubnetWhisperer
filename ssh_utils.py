@@ -6,7 +6,7 @@ import logging
 import json
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
-from app import db
+from app import app, db
 from models import ScanResult, ScanSession
 from encryption_utils import encrypt_data, decrypt_data
 from security_utils import (
@@ -23,12 +23,14 @@ def load_private_key(key_data):
     import io
     key_file = io.StringIO(key_data)
     key_classes = [
-        paramiko.RSAKey,
-        paramiko.Ed25519Key,
-        paramiko.ECDSAKey,
-        paramiko.DSSKey,
+        getattr(paramiko, "RSAKey", None),
+        getattr(paramiko, "Ed25519Key", None),
+        getattr(paramiko, "ECDSAKey", None),
+        getattr(paramiko, "DSSKey", None),
     ]
     for key_class in key_classes:
+        if key_class is None:
+            continue
         try:
             key_file.seek(0)
             return key_class.from_private_key(file_obj=key_file)
@@ -165,7 +167,7 @@ def collect_server_info(ssh_client, detailed=False):
 
 def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_password=None,
                        commands=None, collect_info=False, collect_detailed_info=False, scan_session_id=None,
-                       credential_sets=None):
+                       credential_sets=None, port=22):
     """
     Execute SSH commands on a remote host and return results.
 
@@ -181,9 +183,8 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_pas
         scan_session_id: ID of the scan session
         credential_sets: List of credential sets to try (overrides username/password/private_key if provided)
     """
-    from app import app
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.set_missing_host_key_policy(paramiko.WarningPolicy())
 
     start_time = time.time()
     connection_successful = False
@@ -212,13 +213,13 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_pas
                         if cred.auth_type == 'key' and cred.private_key_encrypted:
                             private_key_data = decrypt_data(cred.private_key_encrypted)
                             pkey = load_private_key(private_key_data)
-                            client.connect(ip, username=cred.username, pkey=pkey, timeout=10)
+                            client.connect(ip, port=port, username=cred.username, pkey=pkey, timeout=10)
                             used_credentials = cred
                             connection_successful = True
                             break
                         elif cred.auth_type == 'password' and cred.password_encrypted:
                             password_data = decrypt_data(cred.password_encrypted)
-                            client.connect(ip, username=cred.username, password=password_data, timeout=10)
+                            client.connect(ip, port=port, username=cred.username, password=password_data, timeout=10)
                             used_credentials = cred
                             connection_successful = True
                             break
@@ -234,10 +235,10 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_pas
                 try:
                     if private_key:
                         pkey = load_private_key(private_key)
-                        client.connect(ip, username=username, pkey=pkey, timeout=10)
+                        client.connect(ip, port=port, username=username, pkey=pkey, timeout=10)
                         connection_successful = True
                     else:
-                        client.connect(ip, username=username, password=password, timeout=10)
+                        client.connect(ip, port=port, username=username, password=password, timeout=10)
                         connection_successful = True
                 except (paramiko.AuthenticationException, paramiko.SSHException) as e:
                     auth_errors.append(f"Authentication failed for user {username}: {str(e)}")
@@ -415,13 +416,13 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_pas
 
 def start_scan_session(scan_session_id, ip_addresses, username, password=None, private_key=None, 
                      commands=None, collect_server_info=False, collect_detailed_info=False, 
-                     sudo_password=None, credential_sets=None, concurrency=10):
+                     sudo_password=None, credential_sets=None, concurrency=10, port=22):
     """Start a scan session with multiple threads"""
     def scan_worker():
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             scan_args = [
                 (ip, username, password, private_key, sudo_password, commands, collect_server_info, 
-                 collect_detailed_info, scan_session_id, credential_sets) 
+                 collect_detailed_info, scan_session_id, credential_sets, port) 
                 for ip in ip_addresses
             ]
             
@@ -439,7 +440,7 @@ def start_scan_session(scan_session_id, ip_addresses, username, password=None, p
                     logger.error(f"Thread execution error: {mask_sensitive_data(str(e))}")
             
             # Update scan session status to completed
-            with db.app.app_context():
+            with app.app_context():
                 scan_session = ScanSession.query.get(scan_session_id)
                 if scan_session:
                     scan_session.status = 'completed'

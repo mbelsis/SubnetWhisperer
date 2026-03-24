@@ -14,6 +14,9 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
     <!-- Theme CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    {% if current_user.is_authenticated %}
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    {% endif %}
     {% block styles %}{% endblock %}
 </head>
 <body>
@@ -72,11 +75,26 @@
                     </li>
                 </ul>
                 <div class="ms-auto d-flex align-items-center">
-                    <button id="theme-toggle" class="theme-toggle btn btn-outline-secondary" type="button">
+                    <button id="theme-toggle" class="theme-toggle btn btn-outline-secondary me-2" type="button">
                         <i class="fas fa-sun me-1"></i>
                         <i class="fas fa-moon me-1"></i>
                         <span id="theme-toggle-text">Light Mode</span>
                     </button>
+                    {% if current_user.is_authenticated %}
+                    <div class="dropdown">
+                        <button class="btn btn-outline-light dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="fas fa-user me-1"></i>{{ current_user.username }}
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="{{ url_for('change_password') }}"><i class="fas fa-key me-2"></i>Change Password</a></li>
+                            {% if current_user.is_admin %}
+                            <li><a class="dropdown-item" href="{{ url_for('user_management') }}"><i class="fas fa-users me-2"></i>User Management</a></li>
+                            {% endif %}
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+                        </ul>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -180,6 +198,31 @@
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <!-- Theme JS -->
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+    <!-- CSRF token for fetch requests -->
+    <script>
+    (function() {
+        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        if (!csrfMeta) return;
+        const csrfToken = csrfMeta.getAttribute('content');
+        const originalFetch = window.fetch;
+        window.fetch = function(url, options) {
+            options = options || {};
+            if (options.method && options.method !== 'GET') {
+                options.headers = options.headers || {};
+                if (options.headers instanceof Headers) {
+                    if (!options.headers.has('X-CSRFToken')) {
+                        options.headers.set('X-CSRFToken', csrfToken);
+                    }
+                } else {
+                    if (!options.headers['X-CSRFToken']) {
+                        options.headers['X-CSRFToken'] = csrfToken;
+                    }
+                }
+            }
+            return originalFetch.call(this, url, options);
+        };
+    })();
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

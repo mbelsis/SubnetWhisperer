@@ -2,6 +2,8 @@ import os
 import logging
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from flask_wtf.csrf import CSRFProtect
 from sqlalchemy.orm import DeclarativeBase
 import uuid
 
@@ -18,7 +20,23 @@ db = SQLAlchemy(model_class=Base)
 
 # Create Flask app
 app = Flask(__name__)
-app.secret_key = os.environ.get("SESSION_SECRET", str(uuid.uuid4()))
+def _get_or_create_secret():
+    """Get session secret from env, or generate and persist one to a file."""
+    secret = os.environ.get("SESSION_SECRET")
+    if secret:
+        return secret
+    secret_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', '.secret_key')
+    try:
+        with open(secret_file, 'r') as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        os.makedirs(os.path.dirname(secret_file), exist_ok=True)
+        secret = str(uuid.uuid4())
+        with open(secret_file, 'w') as f:
+            f.write(secret)
+        return secret
+
+app.secret_key = _get_or_create_secret()
 
 # Configure SQLite database
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///instance/subnet_whisperer.db")
@@ -28,19 +46,28 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
 }
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+# Initialize CSRF protection
+csrf = CSRFProtect(app)
+
 # Initialize the database with the app
 db.init_app(app)
 
+# Initialize Flask-Login
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+login_manager.login_message_category = 'warning'
+
 # Import routes and models after initializing app and db
 with app.app_context():
-    from models import ScanResult, CommandTemplate, ScanSession, ScheduledScan, CredentialSet
+    from models import User, ScanResult, CommandTemplate, ScanSession, ScheduledScan, CredentialSet
     import ssh_utils
     import subnet_utils
     from forms import ScanForm, CommandTemplateForm, ScheduledScanForm
-    
+
     # Create database tables
     db.create_all()
-    
+
     # Run migrations if needed
     try:
         from migrations.scheduled_scans import migrate_database
@@ -48,12 +75,137 @@ with app.app_context():
     except Exception as e:
         logger.error(f"Error running migration: {str(e)}")
 
+    # Create default admin account if no users exist
+    if User.query.count() == 0:
+        default_admin = User(username='admin', is_admin=True)
+        default_admin.set_password('admin')
+        db.session.add(default_admin)
+        db.session.commit()
+        logger.info("Default admin account created (username: admin, password: admin)")
+
+@login_manager.user_loader
+def load_user(user_id):
+    from models import User
+    return User.query.get(int(user_id))
+
+# Auth Routes
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    from models import User
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        user = User.query.filter_by(username=username).first()
+        if user and user.check_password(password):
+            login_user(user)
+            next_page = request.args.get('next')
+            return redirect(next_page or url_for('index'))
+        flash('Invalid username or password.', 'danger')
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('login'))
+
+@app.route('/users')
+@login_required
+def user_management():
+    from models import User
+    if not current_user.is_admin:
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('index'))
+    users = User.query.order_by(User.created_at.desc()).all()
+    return render_template('users.html', users=users)
+
+@app.route('/users/create', methods=['POST'])
+@login_required
+def create_user():
+    from models import User
+    if not current_user.is_admin:
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('index'))
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '')
+    is_admin = request.form.get('is_admin') == 'on'
+    if not username or not password:
+        flash('Username and password are required.', 'danger')
+        return redirect(url_for('user_management'))
+    if User.query.filter_by(username=username).first():
+        flash('Username already exists.', 'danger')
+        return redirect(url_for('user_management'))
+    user = User(username=username, is_admin=is_admin)
+    user.set_password(password)
+    db.session.add(user)
+    db.session.commit()
+    flash(f'User "{username}" created successfully.', 'success')
+    return redirect(url_for('user_management'))
+
+@app.route('/users/<int:user_id>/delete', methods=['POST'])
+@login_required
+def delete_user(user_id):
+    from models import User
+    if not current_user.is_admin:
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('index'))
+    user = User.query.get_or_404(user_id)
+    if user.id == current_user.id:
+        flash('You cannot delete your own account.', 'danger')
+        return redirect(url_for('user_management'))
+    db.session.delete(user)
+    db.session.commit()
+    flash(f'User "{user.username}" deleted.', 'success')
+    return redirect(url_for('user_management'))
+
+@app.route('/change_password', methods=['GET', 'POST'])
+@login_required
+def change_password():
+    if request.method == 'POST':
+        current_password = request.form.get('current_password', '')
+        new_password = request.form.get('new_password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        if not current_user.check_password(current_password):
+            flash('Current password is incorrect.', 'danger')
+        elif len(new_password) < 4:
+            flash('New password must be at least 4 characters.', 'danger')
+        elif new_password != confirm_password:
+            flash('New passwords do not match.', 'danger')
+        else:
+            current_user.set_password(new_password)
+            db.session.commit()
+            flash('Password changed successfully.', 'success')
+            return redirect(url_for('index'))
+    return render_template('change_password.html')
+
+@app.route('/users/<int:user_id>/reset_password', methods=['POST'])
+@login_required
+def reset_user_password(user_id):
+    from models import User
+    if not current_user.is_admin:
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('index'))
+    user = User.query.get_or_404(user_id)
+    new_password = request.form.get('new_password', '')
+    if len(new_password) < 4:
+        flash('Password must be at least 4 characters.', 'danger')
+        return redirect(url_for('user_management'))
+    user.set_password(new_password)
+    db.session.commit()
+    flash(f'Password reset for user "{user.username}".', 'success')
+    return redirect(url_for('user_management'))
+
 # Routes
 @app.route('/')
+@login_required
 def index():
     return render_template('index.html')
 
 @app.route('/scan', methods=['GET', 'POST'])
+@login_required
 def scan():
     from forms import ScanForm
     from models import CommandTemplate, CredentialSet
@@ -73,6 +225,7 @@ def scan():
     return render_template('scan.html', form=form, templates=templates, credential_sets=credential_sets)
 
 @app.route('/start_scan', methods=['POST'])
+@login_required
 def start_scan():
     from subnet_utils import parse_subnet_input
     from ssh_utils import start_scan_session
@@ -228,6 +381,7 @@ def start_scan():
     })
 
 @app.route('/scan_status/<int:scan_id>')
+@login_required
 def scan_status(scan_id):
     from models import ScanSession, ScanResult
     
@@ -247,6 +401,7 @@ def scan_status(scan_id):
     })
 
 @app.route('/results')
+@login_required
 def results():
     from models import ScanSession
     
@@ -256,6 +411,7 @@ def results():
     return render_template('results.html', scan_sessions=scan_sessions, current_scan_id=current_scan_id)
 
 @app.route('/scan_results/<int:scan_id>')
+@login_required
 def scan_results(scan_id):
     from models import ScanResult, ScanSession
     
@@ -280,6 +436,7 @@ def scan_results(scan_id):
     })
     
 @app.route('/scan_results/<int:scan_id>/export/<format>')
+@login_required
 def export_results(scan_id, format):
     """Export scan results in various formats (CSV, JSON, PDF)"""
     from datetime import datetime
@@ -458,6 +615,7 @@ def export_results(scan_id, format):
         return jsonify({'error': f'Export failed: {str(e)}'}), 500
 
 @app.route('/templates', methods=['GET', 'POST'])
+@login_required
 def templates():
     from forms import CommandTemplateForm
     from models import CommandTemplate
@@ -479,6 +637,7 @@ def templates():
     return render_template('templates.html', form=form, templates=templates)
 
 @app.route('/template/<int:template_id>', methods=['GET'])
+@login_required
 def get_template(template_id):
     from models import CommandTemplate
     
@@ -486,6 +645,7 @@ def get_template(template_id):
     return jsonify(template.to_dict())
 
 @app.route('/template/<int:template_id>', methods=['DELETE'])
+@login_required
 def delete_template(template_id):
     from models import CommandTemplate
     
@@ -495,6 +655,7 @@ def delete_template(template_id):
     return jsonify({"success": True})
 
 @app.route('/schedules')
+@login_required
 def schedules():
     from models import ScheduledScan, ScanSession
     import sqlalchemy
@@ -521,6 +682,7 @@ def schedules():
     return render_template('schedules.html', scheduled_scans=scheduled_scans, recent_sessions=recent_sessions)
 
 @app.route('/schedules/create', methods=['GET', 'POST'])
+@login_required
 def create_schedule():
     from forms import ScheduledScanForm
     from models import CommandTemplate, ScheduledScan
@@ -581,6 +743,7 @@ def create_schedule():
     return render_template('schedule_form.html', form=form, schedule=None)
 
 @app.route('/schedules/<int:schedule_id>', methods=['GET'])
+@login_required
 def view_schedule(schedule_id):
     from models import ScheduledScan
     
@@ -588,6 +751,7 @@ def view_schedule(schedule_id):
     return render_template('schedule_detail.html', schedule=scheduled_scan)
 
 @app.route('/schedules/<int:schedule_id>/edit', methods=['GET', 'POST'])
+@login_required
 def edit_schedule(schedule_id):
     from forms import ScheduledScanForm
     from models import ScheduledScan, CommandTemplate
@@ -640,6 +804,7 @@ def edit_schedule(schedule_id):
     return render_template('schedule_form.html', form=form, schedule=scheduled_scan)
 
 @app.route('/schedules/<int:schedule_id>/activate', methods=['POST'])
+@login_required
 def activate_schedule(schedule_id):
     from models import ScheduledScan
     
@@ -654,6 +819,7 @@ def activate_schedule(schedule_id):
     })
 
 @app.route('/schedules/<int:schedule_id>/deactivate', methods=['POST'])
+@login_required
 def deactivate_schedule(schedule_id):
     from models import ScheduledScan
     
@@ -667,6 +833,7 @@ def deactivate_schedule(schedule_id):
     })
 
 @app.route('/schedules/<int:schedule_id>/delete', methods=['POST'])
+@login_required
 def delete_schedule(schedule_id):
     from models import ScheduledScan
     
@@ -680,6 +847,7 @@ def delete_schedule(schedule_id):
     })
 
 @app.route('/credentials', methods=['GET', 'POST'])
+@login_required
 def credentials():
     from forms import CredentialSetForm
     from models import CredentialSet
@@ -716,6 +884,7 @@ def credentials():
     return render_template('credentials.html', form=form, credential_sets=credential_sets)
 
 @app.route('/add_credential', methods=['POST'])
+@login_required
 def add_credential():
     from forms import CredentialSetForm
     from models import CredentialSet
@@ -752,6 +921,7 @@ def add_credential():
     return redirect(url_for('credentials'))
 
 @app.route('/edit_credential', methods=['POST'])
+@login_required
 def edit_credential():
     from forms import CredentialSetForm
     from models import CredentialSet
@@ -788,6 +958,7 @@ def edit_credential():
     return redirect(url_for('credentials'))
 
 @app.route('/delete_credential', methods=['POST'])
+@login_required
 def delete_credential():
     from models import CredentialSet
     
@@ -801,6 +972,7 @@ def delete_credential():
     return redirect(url_for('credentials'))
 
 @app.route('/credential/<int:credential_id>')
+@login_required
 def get_credential(credential_id):
     from models import CredentialSet
     
@@ -808,6 +980,7 @@ def get_credential(credential_id):
     return jsonify(credential_set.to_dict())
 
 @app.route('/settings')
+@login_required
 def settings():
     return render_template('settings.html')
 

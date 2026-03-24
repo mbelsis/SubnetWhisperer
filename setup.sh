@@ -55,6 +55,13 @@ if [ -z "$SESSION_SECRET" ]; then
 fi
 
 echo "=== Setup Complete ==="
+echo ""
+echo "A default admin account has been created:"
+echo "  Username: admin"
+echo "  Password: admin"
+echo ""
+echo "*** IMPORTANT: Change the default password after your first login! ***"
+echo ""
 echo "To start the application:"
 echo "1. Activate the virtual environment (if not already activated):"
 echo "   source venv/bin/activate"

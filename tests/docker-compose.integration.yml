@@ -1,0 +1,26 @@
+services:
+  ssh-password:
+    build:
+      context: .
+      dockerfile: docker/ssh-password/Dockerfile
+    container_name: subnet-whisperer-ssh-password
+    ports:
+      - "2222:22"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "22"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+
+  ssh-key:
+    build:
+      context: .
+      dockerfile: docker/ssh-key/Dockerfile
+    container_name: subnet-whisperer-ssh-key
+    ports:
+      - "2223:22"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "22"]
+      interval: 3s
+      timeout: 2s
+      retries: 20

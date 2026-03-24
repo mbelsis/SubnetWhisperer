@@ -73,14 +73,14 @@ SENSITIVE_DATA_PATTERNS = [
     r'(?i)pwd\s*[=:]\s*([^\s]+)',
     r'(?i)passwd\s*[=:]\s*([^\s]+)',
     r'(?i)pass\s*[=:]\s*([^\s]+)',
-    r'(?:(?i)PASSWORD|PWD|PASSWD|PASS)=([^\s;]+)',
+    r'(?i:(?:PASSWORD|PWD|PASSWD|PASS))=([^\s;]+)',
     
     # API key and token patterns
     r'(?i)api[-_]?key\s*[=:]\s*([^\s]+)',
     r'(?i)auth[-_]?token\s*[=:]\s*([^\s]+)',
     r'(?i)access[-_]?token\s*[=:]\s*([^\s]+)',
     r'(?i)secret[-_]?key\s*[=:]\s*([^\s]+)',
-    r'(?:(?i)API_?KEY|AUTH_?TOKEN|ACCESS_?TOKEN|SECRET_?KEY)=([^\s;]+)',
+    r'(?i:(?:API_?KEY|AUTH_?TOKEN|ACCESS_?TOKEN|SECRET_?KEY))=([^\s;]+)',
     
     # SSH private key markers
     r'(?s)-----BEGIN (?:RSA|DSA|EC|OPENSSH) PRIVATE KEY-----.*?-----END (?:RSA|DSA|EC|OPENSSH) PRIVATE KEY-----',

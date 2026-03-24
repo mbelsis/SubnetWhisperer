@@ -12,6 +12,7 @@ If you enjoy using this app, why not [![Buy Me a Coffee](https://www.buymeacoffe
 
 ## Features
 
+- **User Authentication**: Login-protected interface with user management and role-based access control
 - **Subnet Scanning**: Scan multiple IP addresses or subnets in parallel
 - **SSH Connection**: Connect to remote hosts using password or key-based authentication
 - **Command Execution**: Run custom commands or use predefined templates
@@ -49,21 +50,24 @@ subnet_whisperer/
 │   ├── 404.html
 │   ├── 500.html
 │   ├── base.html             # Base template with common elements
+│   ├── change_password.html  # Password change page
 │   ├── credentials.html      # Credential management page
 │   ├── index.html            # Home page
+│   ├── login.html            # Login page
 │   ├── results.html          # Results viewing page
 │   ├── scan.html             # Scan configuration page
 │   ├── schedule_form.html    # Schedule creation/editing
 │   ├── schedule_detail.html  # Schedule details
 │   ├── schedules.html        # Schedule management
 │   ├── settings.html         # Application settings
-│   └── templates.html        # Command templates management
+│   ├── templates.html        # Command templates management
+│   └── users.html            # User management page (admin)
 ├── app.py                    # Flask application and routes
 ├── encryption_utils.py       # Secure encryption for credentials
 ├── forms.py                  # Form definitions
 ├── main.py                   # Application entry point
 ├── run_migrations.py         # Database migration script
-├── models.py                 # Database models
+├── models.py                 # Database models (User, ScanSession, etc.)
 ├── scheduler.py              # Background scheduler for recurring scans
 ├── setup.sh                  # Installation script
 ├── ssh_utils.py              # SSH connection utilities
@@ -88,6 +92,7 @@ The setup script will:
 - Set up the SQLite database (default)
 - Create necessary directories
 - Configure basic environment variables
+- Create a default admin account
 
 Steps:
 1. Clone the repository
@@ -96,6 +101,11 @@ Steps:
    chmod +x setup.sh
    ./setup.sh
    ```
+3. A default admin account is created automatically:
+   - **Username:** `admin`
+   - **Password:** `admin`
+
+> **Important:** Change the default admin password immediately after your first login via the user dropdown menu in the top-right corner.
 
 ### Option 2: Manual Installation
 
@@ -109,19 +119,20 @@ Steps:
    ```bash
    pip install flask flask-login flask-sqlalchemy flask-wtf gunicorn matplotlib pandas paramiko psycopg2-binary sqlalchemy wtforms email-validator cryptography bcrypt
    ```
-4. Create the instance directory:
+4. Create the instance and logs directories:
    ```bash
-   mkdir -p instance
+   mkdir -p instance logs
    ```
-5. Initialize the database:
+5. Initialize the database and create the default admin account:
    ```bash
    python run_migrations.py
    python -c "from app import app, db; app.app_context().push(); db.create_all()"
    ```
-6. Create logs directory:
-   ```bash
-   mkdir -p logs
-   ```
+   The database initialization automatically creates a default admin account:
+   - **Username:** `admin`
+   - **Password:** `admin`
+
+> **Important:** Change the default admin password immediately after your first login via the user dropdown menu in the top-right corner.
 
 ## Docker Deployment
 
@@ -161,6 +172,11 @@ This method sets up both the application and an optional PostgreSQL database:
    ./docker-start.sh postgres
    ```
 3. Access the application at http://localhost:5000
+4. Log in with the default admin account:
+   - **Username:** `admin`
+   - **Password:** `admin`
+
+> **Important:** Change the default admin password immediately after your first login via the user dropdown menu in the top-right corner.
 
 ### Option 2: Using Docker directly
 
@@ -174,6 +190,11 @@ If you prefer to run only the application container:
    ```bash
    docker run -p 5000:5000 -v $(pwd)/instance:/app/instance -v $(pwd)/logs:/app/logs subnet-whisperer
    ```
+3. Log in with the default admin account:
+   - **Username:** `admin`
+   - **Password:** `admin`
+
+> **Important:** Change the default admin password immediately after your first login.
 
 ### Using Environment Variables with Docker
 For convenience, you can use the provided environment file template:
@@ -227,6 +248,14 @@ python main.py
 ```
 
 The application will be available at http://localhost:5000
+
+### Default Admin Account
+
+On first run, a default admin account is created automatically:
+- **Username:** `admin`
+- **Password:** `admin`
+
+> **Important:** Change the default admin password immediately after your first login. Navigate to the user dropdown in the top-right corner and select "Change Password".
 
 ## Database Setup
 
@@ -285,7 +314,19 @@ Note: The setup script will automatically install Python packages including `psy
 
 ## Usage Guide
 
-### 1. Scanning Subnets
+### 1. User Management
+
+Admin users can manage accounts from the user dropdown menu in the top-right corner:
+
+1. **Create users**: Click "User Management" then "Create User" to add new accounts
+2. **Assign roles**: Check "Admin privileges" when creating a user to grant admin access
+3. **Reset passwords**: Click "Reset Password" next to any user to set a new password
+4. **Delete users**: Remove user accounts (admins cannot delete their own account)
+5. **Change your password**: Select "Change Password" from the user dropdown menu
+
+All routes require authentication. Unauthenticated users are redirected to the login page.
+
+### 2. Scanning Subnets
 
 1. Navigate to the "Scan" page
 2. Enter subnets in CIDR notation (e.g., 192.168.1.0/24) or IP ranges (e.g., 192.168.1.1-192.168.1.10)
@@ -294,7 +335,7 @@ Note: The setup script will automatically install Python packages including `psy
 5. Set scan options (server information collection level, concurrency)
 6. Click "Start Scan"
 
-### 2. Server Information Collection
+### 3. Server Information Collection
 
 The application offers two levels of server information collection:
 
@@ -308,7 +349,7 @@ The application offers two levels of server information collection:
   - Default gateways
   - Virtualization information
 
-### 3. Command Templates
+### 4. Command Templates
 
 Create reusable command templates for common operations:
 
@@ -317,7 +358,7 @@ Create reusable command templates for common operations:
 3. Add the commands you want to execute
 4. Save the template
 
-### 4. Viewing Results
+### 5. Viewing Results
 
 1. Navigate to the "Results" page
 2. Select a scan session to view
@@ -325,7 +366,7 @@ Create reusable command templates for common operations:
 4. View detailed information for each scanned host
 5. Export results in CSV, JSON, or PDF format
 
-### 5. Managing Credential Sets
+### 6. Managing Credential Sets
 
 1. Navigate to the "Credentials" page
 2. Click "Add New Credential Set" to create a new set of credentials
@@ -336,7 +377,7 @@ Create reusable command templates for common operations:
 7. Add a description to help identify the credential set
 8. View, edit, or delete credential sets as needed
 
-### 6. Setting Up Scheduled Scans
+### 7. Setting Up Scheduled Scans
 
 1. Navigate to the "Schedules" page
 2. Click "New Schedule" to create a scheduled scan
@@ -347,6 +388,10 @@ Create reusable command templates for common operations:
 
 ## Security Features
 
+- **User Authentication**: All routes require login; sessions managed via Flask-Login with bcrypt password hashing
+- **Role-Based Access**: Admin users can manage accounts; regular users can only change their own password
+- **CSRF Protection**: All forms and AJAX requests are protected against cross-site request forgery
+- **SSH Host Key Verification**: Unknown SSH host keys trigger warnings instead of being silently accepted
 - **Credential Encryption**: SSH credentials are secured using Fernet symmetric encryption
 - **Command Sanitization**: Blocks dangerous or destructive commands before they execute
 - **Sensitive Data Masking**: Automatically masks passwords, keys, and other sensitive information in logs
@@ -354,8 +399,7 @@ Create reusable command templates for common operations:
 - **Secure Storage**: Passwords, SSH keys, and sudo passwords are stored with proper encryption
 - **Multiple Credential Sets**: Create and manage multiple credential sets with different priority levels
 - **Auto-Try Functionality**: System can automatically try multiple credential sets in order of priority
-- **Command Sanitization**: Blocks dangerous or destructive commands before they execute
-- **Sensitive Data Masking**: Automatically masks passwords, keys, and other sensitive information in logs
+- **Persistent Session Secret**: Session secret is persisted to disk, preventing session invalidation across restarts
 
 ### Encryption Configuration
 
