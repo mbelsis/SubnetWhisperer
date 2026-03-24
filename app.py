@@ -28,13 +28,17 @@ def _get_or_create_secret():
     secret_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', '.secret_key')
     try:
         with open(secret_file, 'r') as f:
-            return f.read().strip()
+            secret = f.read().strip()
+            if secret:
+                return secret
     except FileNotFoundError:
-        os.makedirs(os.path.dirname(secret_file), exist_ok=True)
-        secret = str(uuid.uuid4())
-        with open(secret_file, 'w') as f:
-            f.write(secret)
-        return secret
+        pass
+    # File missing or empty — generate and persist a new secret
+    os.makedirs(os.path.dirname(secret_file), exist_ok=True)
+    secret = str(uuid.uuid4())
+    with open(secret_file, 'w') as f:
+        f.write(secret)
+    return secret
 
 app.secret_key = _get_or_create_secret()
 
@@ -77,11 +81,15 @@ with app.app_context():
 
     # Create default admin account if no users exist
     if User.query.count() == 0:
-        default_admin = User(username='admin', is_admin=True)
-        default_admin.set_password('admin')
-        db.session.add(default_admin)
-        db.session.commit()
-        logger.info("Default admin account created (username: admin, password: admin)")
+        try:
+            default_admin = User(username='admin', is_admin=True)
+            default_admin.set_password('admin')
+            db.session.add(default_admin)
+            db.session.commit()
+            logger.info("Default admin account created (username: admin, password: admin)")
+        except Exception:
+            db.session.rollback()
+            logger.info("Default admin account already exists (created by migration)")
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -101,6 +109,9 @@ def login():
         if user and user.check_password(password):
             login_user(user)
             next_page = request.args.get('next')
+            # Only allow relative redirects to prevent open redirect attacks
+            if next_page and (not next_page.startswith('/') or next_page.startswith('//')):
+                next_page = None
             return redirect(next_page or url_for('index'))
         flash('Invalid username or password.', 'danger')
     return render_template('login.html')
@@ -156,9 +167,10 @@ def delete_user(user_id):
     if user.id == current_user.id:
         flash('You cannot delete your own account.', 'danger')
         return redirect(url_for('user_management'))
+    username = user.username
     db.session.delete(user)
     db.session.commit()
-    flash(f'User "{user.username}" deleted.', 'success')
+    flash(f'User "{username}" deleted.', 'success')
     return redirect(url_for('user_management'))
 
 @app.route('/change_password', methods=['GET', 'POST'])
@@ -838,12 +850,13 @@ def delete_schedule(schedule_id):
     from models import ScheduledScan
     
     scheduled_scan = ScheduledScan.query.get_or_404(schedule_id)
+    schedule_name = scheduled_scan.name
     db.session.delete(scheduled_scan)
     db.session.commit()
-    
+
     return jsonify({
         "success": True,
-        "message": f"Schedule '{scheduled_scan.name}' deleted successfully"
+        "message": f"Schedule '{schedule_name}' deleted successfully"
     })
 
 @app.route('/credentials', methods=['GET', 'POST'])
