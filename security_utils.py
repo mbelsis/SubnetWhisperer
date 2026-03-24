@@ -98,56 +98,67 @@ SENSITIVE_DATA_PATTERNS = [
     r'(?i)(?:cert|certificate|key)[-_]?file\s*[=:]\s*([^\s]+\.(?:pem|key|cert|crt))',
 ]
 
+def _is_sanitization_enabled():
+    """Check if command sanitization is enabled via environment variable."""
+    import os
+    return os.environ.get('COMMAND_SANITIZATION', 'enabled').lower() != 'disabled'
+
 def sanitize_command(command):
     """
     Sanitize a command by removing dangerous elements.
     Replace potentially dangerous shell control characters.
-    
+
+    When COMMAND_SANITIZATION=disabled in the environment, only truly destructive
+    commands (rm -rf /, fork bombs, disk wiping) are blocked. Shell operators
+    like pipes, redirects, chaining, and restricted commands are all allowed.
+
     Args:
         command: The command string to sanitize
-        
+
     Returns:
         (bool, str): Tuple containing (is_safe, sanitized_command_or_error_message)
     """
     if not command or not isinstance(command, str):
         return (False, "Invalid command")
-        
+
     # Convert to lowercase for case-insensitive checks
     cmd_lower = command.lower()
-    
-    # Check for exact dangerous commands
+
+    # Always check for truly destructive commands regardless of setting
     for dangerous_cmd in DANGEROUS_COMMANDS:
         if dangerous_cmd in cmd_lower:
             logger.warning(f"Blocked dangerous command: {command}")
             return (False, f"Command contains blocked pattern: {dangerous_cmd}")
-    
-    # Check for dangerous patterns
+
+    # Always check for destructive patterns regardless of setting
     for pattern in DANGEROUS_PATTERNS:
         if re.search(pattern, command, re.IGNORECASE):
             logger.warning(f"Blocked command matching dangerous pattern: {command}")
             return (False, f"Command contains dangerous pattern matching: {pattern}")
-    
-    # Check for shell command chaining/injection
-    if ';' in command or '&&' in command or '||' in command:
-        logger.warning(f"Blocked command with shell operators: {command}")
-        return (False, "Command chaining using ';', '&&', or '||' is not allowed")
-    
-    # Check for redirection and piping
-    if '>' in command or '|' in command:
-        logger.warning(f"Blocked command with redirection/piping: {command}")
-        return (False, "Redirection (>) and piping (|) are not allowed")
-    
-    # Check for backticks or $() for command substitution
-    if '`' in command or '$(' in command:
-        logger.warning(f"Blocked command with substitution: {command}")
-        return (False, "Command substitution using backticks or $() is not allowed")
-    
-    # Check for restricted commands that require extra scrutiny
-    for restricted_cmd in RESTRICTED_COMMANDS:
-        if restricted_cmd in cmd_lower:
-            logger.warning(f"Command requires approval: {command}")
-            return (False, f"Command contains restricted pattern requiring approval: {restricted_cmd}")
-    
+
+    # The remaining checks only apply when sanitization is enabled
+    if _is_sanitization_enabled():
+        # Check for shell command chaining/injection
+        if ';' in command or '&&' in command or '||' in command:
+            logger.warning(f"Blocked command with shell operators: {command}")
+            return (False, "Command chaining using ';', '&&', or '||' is not allowed")
+
+        # Check for redirection and piping
+        if '>' in command or '|' in command:
+            logger.warning(f"Blocked command with redirection/piping: {command}")
+            return (False, "Redirection (>) and piping (|) are not allowed")
+
+        # Check for backticks or $() for command substitution
+        if '`' in command or '$(' in command:
+            logger.warning(f"Blocked command with substitution: {command}")
+            return (False, "Command substitution using backticks or $() is not allowed")
+
+        # Check for restricted commands that require extra scrutiny
+        for restricted_cmd in RESTRICTED_COMMANDS:
+            if restricted_cmd in cmd_lower:
+                logger.warning(f"Command requires approval: {command}")
+                return (False, f"Command contains restricted pattern requiring approval: {restricted_cmd}")
+
     # If it's made it here, the command is considered safe
     return (True, command)
 

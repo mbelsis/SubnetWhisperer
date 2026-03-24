@@ -410,6 +410,15 @@ export FLASK_SECRET_KEY="your-secure-application-secret"
 
 If neither is provided, a temporary key will be generated, but credentials will need to be re-entered after application restart.
 
+### Command Sanitization Configuration
+
+To allow shell operators (pipes, redirects, command chaining) in SSH commands:
+```bash
+export COMMAND_SANITIZATION=disabled
+```
+
+When disabled, only truly destructive commands are blocked. See [Shell Operator Restrictions](#shell-operator-restrictions) for details. Default: `enabled`.
+
 ## Security Features
 
 ### Command Sanitization
@@ -431,7 +440,27 @@ All sanitization patterns are defined in the `security_utils.py` file, including
 
 #### Shell Operator Restrictions
 
-As a deliberate security-over-convenience tradeoff, Subnet Whisperer **blocks all commands** containing shell operators such as `|` (pipe), `>` (redirect), `;` (semicolon), `&&` (and), and `||` (or). This prevents shell injection attacks where a malicious or accidental command could chain destructive operations onto an otherwise safe command.
+By default, Subnet Whisperer **blocks commands** containing shell operators such as `|` (pipe), `>` (redirect), `;` (semicolon), `&&` (and), and `||` (or). This prevents shell injection attacks where a malicious or accidental command could chain destructive operations onto an otherwise safe command.
+
+> **Note:** Truly destructive commands (e.g., `rm -rf /`, fork bombs, disk wiping) are **always** blocked regardless of any configuration.
+
+##### Disabling Shell Operator Restrictions
+
+If you need to run complex commands with pipes, redirects, or chaining, you can disable these restrictions by setting the `COMMAND_SANITIZATION` environment variable:
+
+```bash
+# In your .env file or environment
+COMMAND_SANITIZATION=disabled
+```
+
+Or when running with Docker:
+```bash
+docker run -p 5000:5000 -e COMMAND_SANITIZATION=disabled subnet-whisperer
+```
+
+When disabled, commands like `ps aux | grep nginx`, `df -h | sort -k5 -rn`, and `cat /var/log/syslog | tail -100` will be allowed. The default value is `enabled`.
+
+##### When sanitization is enabled (default)
 
 **Examples of commands that will be blocked:**
 
@@ -445,7 +474,7 @@ As a deliberate security-over-convenience tradeoff, Subnet Whisperer **blocks al
 | `df -h \| grep /dev` | Contains pipe (`\|`) |
 | `dmesg \| tail -50` | Contains pipe (`\|`) |
 
-**Examples of commands that will be allowed:**
+**Examples of commands that will always be allowed:**
 
 | Command | Description |
 |---------|-------------|
@@ -458,7 +487,7 @@ As a deliberate security-over-convenience tradeoff, Subnet Whisperer **blocks al
 | `cat /etc/os-release` | OS information |
 | `sudo apt list --installed` | List packages (sudo is allowed) |
 
-**Workaround for complex commands:** If you need to run commands that require pipes or redirection, create a shell script on the target server and execute it as a single command instead. For example:
+**Workaround (without disabling sanitization):** If you need to run commands that require pipes or redirection but prefer to keep sanitization enabled, create a shell script on the target server and execute it as a single command instead. For example:
 
 1. Create a script on the target server:
    ```bash
