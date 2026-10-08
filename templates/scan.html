@@ -159,6 +159,9 @@
                                                         <label for="privateKey" class="form-label">SSH Private Key</label>
                                                         <textarea id="privateKey" name="private_key" class="form-control" rows="3" placeholder="Paste your private key here"></textarea>
                                                         <div class="invalid-feedback">Please enter a private key</div>
+                                                        <label for="privateKeyPassphrase" class="form-label mt-2">Key Passphrase (Optional)</label>
+                                                        <input type="password" id="privateKeyPassphrase" name="private_key_passphrase" class="form-control" autocomplete="new-password">
+                                                        <div class="form-text">Only if the private key is passphrase-protected</div>
                                                     </div>
                                                     
                                                     <div class="col-md-4 mb-3">

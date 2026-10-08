@@ -1,15 +1,19 @@
 # Testing Guide
 
-This project now includes a minimal automated test suite built with Python's standard `unittest` framework.
+This project includes an automated test suite built with Python's standard `unittest` framework.
 
 ## Test Scope
 
-The current suite is a smoke-test layer for the Flask app. It verifies:
+`tests/test_app.py` (no network access needed) checks, among other things:
 
-- The login page renders successfully
-- An authenticated user can access the schedule creation page
-- The `/start_scan` endpoint rejects invalid requests
-- The `/scan_results/<id>` endpoint returns the expected summary for saved results
+- login, forced password change, the 8-character password policy, POST-only logout and the open-redirect guard
+- that changing a password signs out other sessions, and that the generated first-admin password file is deleted after the first change
+- admin-only access to credential sets, schedules and templates
+- `/start_scan` input validation (missing credentials, bad concurrency, oversized subnets)
+- `/validate_subnets` reporting, template updates and duplicate names, scan deletion
+- CSV export protection against spreadsheet formulas
+- schedule timing (the first run at the start date)
+- loading passphrase-protected private keys (correct, missing and wrong passphrase)
 
 The tests use:
 
@@ -34,10 +38,10 @@ $env:START_SCHEDULER = "false"      # Windows PowerShell
 
 ## How To Run
 
-From the repository root, run:
+From the repository root, with the app's virtualenv active (`source .venv/bin/activate` after `./setup.sh`), run:
 
 ```bash
-python3 -m unittest discover -s tests -v
+python -m unittest discover -s tests -v
 ```
 
 ## Docker Integration Tests

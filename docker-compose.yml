@@ -27,7 +27,8 @@ services:
   web:
     build: .
     ports:
-      - "5000:5000"
+      # Host port: set HOST_PORT if 5000 is taken (on macOS, AirPlay Receiver uses 5000)
+      - "${HOST_PORT:-5000}:5000"
     volumes:
       - ./instance:/app/instance
       - ./logs:/app/logs
@@ -39,7 +40,7 @@ services:
   web-postgres:
     build: .
     ports:
-      - "5000:5000"
+      - "${HOST_PORT:-5000}:5000"
     volumes:
       - ./instance:/app/instance
       - ./logs:/app/logs

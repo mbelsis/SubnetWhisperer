@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const passwordInput = document.getElementById('password');
     const privateKeyField = document.getElementById('privateKeyField');
     const privateKeyInput = document.getElementById('privateKey');
+    const privateKeyPassphraseInput = document.getElementById('privateKeyPassphrase');
     const sudoPasswordInput = document.getElementById('sudoPassword');
 
     // Scan options
@@ -199,6 +200,7 @@ document.addEventListener('DOMContentLoaded', function() {
             payload.auth_type = authType;
             payload.password = authType === 'password' ? passwordInput.value : '';
             payload.private_key = authType === 'key' ? privateKeyInput.value : '';
+            payload.private_key_passphrase = authType === 'key' && privateKeyPassphraseInput ? privateKeyPassphraseInput.value : '';
             payload.sudo_password = sudoPasswordInput && sudoPasswordInput.value ? sudoPasswordInput.value : null;
         }
 

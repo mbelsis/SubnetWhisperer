@@ -78,6 +78,7 @@ class CredentialSet(db.Model):
     auth_type = db.Column(db.String(20), nullable=False, default='password')  # 'password' or 'key'
     password_encrypted = db.Column(db.Text)
     private_key_encrypted = db.Column(db.Text)
+    private_key_passphrase_encrypted = db.Column(db.Text)  # Optional passphrase of the private key
     sudo_password_encrypted = db.Column(db.Text)  # For sudo commands
     description = db.Column(db.String(255))  # Optional description
     priority = db.Column(db.Integer, default=0)  # Priority order for trying credentials
@@ -95,6 +96,7 @@ class CredentialSet(db.Model):
             'auth_type': self.auth_type,
             'has_password': bool(self.password_encrypted),
             'has_private_key': bool(self.private_key_encrypted),
+            'has_private_key_passphrase': bool(self.private_key_passphrase_encrypted),
             'has_sudo_password': bool(self.sudo_password_encrypted),
             'description': self.description,
             'priority': self.priority,
@@ -215,6 +217,7 @@ class ScheduledScan(db.Model):
     # Note: Password/key are stored encrypted or are entered at runtime
     password_encrypted = db.Column(db.Text)
     private_key_encrypted = db.Column(db.Text)
+    private_key_passphrase_encrypted = db.Column(db.Text)
     sudo_password_encrypted = db.Column(db.Text)
     port = db.Column(db.Integer, default=22)
     # Optional saved credential set; when set it overrides username/password/key above

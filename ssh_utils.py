@@ -155,8 +155,11 @@ def _connect(ip, port, username, password=None, pkey=None):
         raise
 
 
-def load_private_key(key_data):
-    """Load a private key, trying multiple key types (RSA, Ed25519, ECDSA, DSA)"""
+def load_private_key(key_data, passphrase=None):
+    """Load a private key, trying multiple key types (RSA, Ed25519, ECDSA, DSA).
+
+    passphrase decrypts passphrase-protected keys; it is ignored for unencrypted keys.
+    """
     key_classes = [
         getattr(paramiko, "RSAKey", None),
         getattr(paramiko, "Ed25519Key", None),
@@ -168,15 +171,17 @@ def load_private_key(key_data):
         if key_class is None:
             continue
         try:
-            return key_class.from_private_key(file_obj=io.StringIO(key_data))
+            return key_class.from_private_key(file_obj=io.StringIO(key_data), password=passphrase or None)
         except paramiko.PasswordRequiredException:
             passphrase_protected = True
         except (paramiko.SSHException, ValueError):
             continue
     if passphrase_protected:
         raise paramiko.SSHException(
-            "Private key is passphrase-protected; passphrase-protected keys are not supported. "
-            "Remove the passphrase (ssh-keygen -p) or use a dedicated key without one.")
+            "Private key is passphrase-protected; enter the key passphrase")
+    if passphrase:
+        raise paramiko.SSHException(
+            "Unable to load private key - wrong passphrase, or unsupported or malformed key")
     raise paramiko.SSHException("Unable to parse private key - unsupported or malformed key")
 
 
@@ -414,6 +419,8 @@ def _credential_to_dict(cred):
         'priority': cred.priority or 0,
         'password': _decrypt_field(cred.password_encrypted, 'password', errors),
         'private_key': _decrypt_field(cred.private_key_encrypted, 'private key', errors),
+        'private_key_passphrase': _decrypt_field(
+            getattr(cred, 'private_key_passphrase_encrypted', None), 'key passphrase', errors),
         'sudo_password': _decrypt_field(cred.sudo_password_encrypted, 'sudo password', errors),
     }
     data['error'] = "; ".join(errors) if errors else None
@@ -436,13 +443,14 @@ def load_credential_sets(credential_set_ids):
     return sorted(dicts, key=lambda c: c['priority'], reverse=True)
 
 
-def _attempt_list(username, password, private_key, credentials):
+def _attempt_list(username, password, private_key, credentials, private_key_passphrase=None):
     attempts = list(credentials or [])
     if username and (password or private_key):
         attempts.append({
             'id': None, 'username': username,
             'auth_type': 'key' if private_key else 'password',
             'password': password, 'private_key': private_key,
+            'private_key_passphrase': private_key_passphrase if private_key else None,
             'sudo_password': None, 'priority': None, 'error': None,
         })
     return attempts
@@ -467,7 +475,7 @@ def _try_connect(ip, port, attempts, auth_errors):
                 if not cred.get('private_key'):
                     auth_errors.append(f"Skipped {label}: no private key available")
                     continue
-                pkey = load_private_key(cred['private_key'])
+                pkey = load_private_key(cred['private_key'], cred.get('private_key_passphrase'))
                 client = _connect(ip, port, user, pkey=pkey)
             else:
                 if not cred.get('password'):
@@ -521,8 +529,9 @@ def _scan_host(ip, port, attempts, sudo_password, commands, collect_info, collec
             return fields
 
         fields['ssh_status'] = True
-        if cred.get('password'):
-            secrets.append(cred['password'])
+        for secret_field in ('password', 'private_key_passphrase'):
+            if cred.get(secret_field):
+                secrets.append(cred[secret_field])
         sudo_pw = cred.get('sudo_password') or sudo_password
         if sudo_pw:
             secrets.append(sudo_pw)
@@ -603,7 +612,7 @@ def _scan_host(ip, port, attempts, sudo_password, commands, collect_info, collec
 def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_password=None,
                          commands=None, collect_info=False, collect_detailed_info=False,
                          scan_session_id=None, credential_sets=None, port=22,
-                         credential_set_ids=None):
+                         credential_set_ids=None, private_key_passphrase=None):
     """
     Scan one host: connect, run commands, collect info, and store a ScanResult.
 
@@ -639,7 +648,8 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_pas
 
     # Network I/O happens outside the app context so no DB connection is held.
     try:
-        fields = _scan_host(ip, port, _attempt_list(username, password, private_key, credentials),
+        fields = _scan_host(ip, port, _attempt_list(username, password, private_key, credentials,
+                                                    private_key_passphrase),
                             sudo_password, commands, collect_info, collect_detailed_info)
     except Exception as e:  # defensive: _scan_host already catches errors
         fields = {'status_code': 'failed', 'error_message': f"Error: {mask_sensitive_data(str(e))}"}
@@ -659,7 +669,8 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_pas
 
 def start_scan_session(scan_session_id, ip_addresses, username, password=None, private_key=None,
                        commands=None, collect_server_info=False, collect_detailed_info=False,
-                       sudo_password=None, credential_set_ids=None, concurrency=10, port=22):
+                       sudo_password=None, credential_set_ids=None, concurrency=10, port=22,
+                       private_key_passphrase=None):
     """
     Start a scan in a background thread and return the started threading.Thread.
 
@@ -694,7 +705,8 @@ def start_scan_session(scan_session_id, ip_addresses, username, password=None, p
                         pending.add(executor.submit(
                             execute_ssh_commands, ip, username, password, private_key,
                             sudo_password, commands, do_collect, collect_detailed_info,
-                            scan_session_id, None, port, cred_ids))
+                            scan_session_id, None, port, cred_ids,
+                            private_key_passphrase=private_key_passphrase))
 
                 submit_more()
                 while pending:

@@ -108,6 +108,9 @@ class ScheduledScanForm(FlaskForm):
     
     private_key = TextAreaField('SSH Private Key', validators=[Optional()],
                               description='Paste your private key here')
+
+    private_key_passphrase = PasswordField('Key Passphrase', validators=[Optional()],
+                                           description='Only if the private key is passphrase-protected')
     
     sudo_password = PasswordField('Sudo Password', validators=[Optional()],
                                 description='Password for sudo commands (optional)')
@@ -211,6 +214,9 @@ class CredentialSetForm(FlaskForm):
     
     private_key = TextAreaField('SSH Private Key', validators=[Optional()],
                               description='Paste your private key here')
+
+    private_key_passphrase = PasswordField('Key Passphrase', validators=[Optional()],
+                                           description='Only if the private key is passphrase-protected')
     
     sudo_password = PasswordField('Sudo Password', validators=[Optional()],
                                 description='Password for sudo commands (optional)')

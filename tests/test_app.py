@@ -297,6 +297,38 @@ class AppRoutesTestCase(unittest.TestCase):
                 schedule_frequency="daily", start_date=start, is_active=True)
             self.assertEqual(schedule.calculate_next_run(), start)
 
+    def test_initial_admin_password_file_removed_after_change(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "initial_admin_password")
+            with open(path, "w") as f:
+                f.write("generated\n")
+            original = self.app_module.INITIAL_ADMIN_PASSWORD_FILE
+            self.app_module.INITIAL_ADMIN_PASSWORD_FILE = path
+            try:
+                self.login()
+                self.client.post("/change_password", data={
+                    "current_password": ADMIN_PASSWORD, "new_password": "another-admin-pw",
+                    "confirm_password": "another-admin-pw"})
+                self.assertFalse(os.path.exists(path))
+            finally:
+                self.app_module.INITIAL_ADMIN_PASSWORD_FILE = original
+
+    def test_load_private_key_with_passphrase(self):
+        import io
+        import paramiko
+        import ssh_utils
+        key = paramiko.RSAKey.generate(2048)
+        buf = io.StringIO()
+        key.write_private_key(buf, password="s3cret-phrase")
+        pem = buf.getvalue()
+        loaded = ssh_utils.load_private_key(pem, "s3cret-phrase")
+        self.assertEqual(loaded.get_base64(), key.get_base64())
+        with self.assertRaisesRegex(paramiko.SSHException, "passphrase-protected"):
+            ssh_utils.load_private_key(pem)
+        with self.assertRaisesRegex(paramiko.SSHException, "wrong passphrase"):
+            ssh_utils.load_private_key(pem, "wrong")
+
 
 if __name__ == "__main__":
     unittest.main()

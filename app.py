@@ -200,6 +200,19 @@ def _is_safe_redirect(target):
     return not parsed.scheme and not parsed.netloc
 
 
+INITIAL_ADMIN_PASSWORD_FILE = os.path.join(INSTANCE_DIR, 'initial_admin_password')
+
+
+def _remove_initial_admin_password_file():
+    """Delete the generated first-run admin password once an admin has set a new password."""
+    if current_user.is_admin and os.path.exists(INITIAL_ADMIN_PASSWORD_FILE):
+        try:
+            os.remove(INITIAL_ADMIN_PASSWORD_FILE)
+            logger.info("Removed %s after the admin password was changed", INITIAL_ADMIN_PASSWORD_FILE)
+        except OSError as e:
+            logger.error("Could not remove %s: %s", INITIAL_ADMIN_PASSWORD_FILE, e)
+
+
 def _validate_new_password(password):
     """Return an error message if the password does not meet the policy, else None."""
     if not password or len(password) < MIN_PASSWORD_LENGTH:
@@ -324,6 +337,7 @@ def change_password():
             current_user.set_password(new_password)
             current_user.must_change_password = False
             db.session.commit()
+            _remove_initial_admin_password_file()
             # The session token changed with the password; refresh this session
             login_user(current_user)
             flash('Password changed successfully.', 'success')
@@ -416,11 +430,13 @@ def start_scan():
             return _json_error("No data provided")
         get = data.get
         username_key, auth_key, password_key, key_key = 'username', 'auth_type', 'password', 'private_key'
+        passphrase_key = 'private_key_passphrase'
         template_key, commands_key, sudo_key = 'template_id', 'custom_commands', 'sudo_password'
         info_key, detailed_key, credset_key = 'collect_server_info', 'collect_detailed_info', 'credential_set_id'
     else:
         get = request.form.get
         username_key, auth_key, password_key, key_key = 'username', 'authType', 'password', 'privateKey'
+        passphrase_key = 'privateKeyPassphrase'
         template_key, commands_key, sudo_key = 'commandTemplate', 'customCommands', 'sudoPassword'
         info_key, detailed_key, credset_key = 'collectServerInfo', 'collectDetailedInfo', 'credentialSet'
 
@@ -449,6 +465,7 @@ def start_scan():
     auth_type = None
     password = None
     private_key = None
+    private_key_passphrase = None
     credential_set_ids = None
 
     # Handle credential sets logic
@@ -483,6 +500,7 @@ def start_scan():
             return _json_error("auth_type must be 'password' or 'key'")
         password = (get(password_key, '') or None) if auth_type == 'password' else None
         private_key = (get(key_key, '') or None) if auth_type == 'key' else None
+        private_key_passphrase = (get(passphrase_key, '') or None) if auth_type == 'key' else None
 
         # Validate manual credentials
         if not username:
@@ -546,7 +564,8 @@ def start_scan():
             sudo_password=sudo_password,
             credential_set_ids=credential_set_ids,
             concurrency=concurrency,
-            port=port
+            port=port,
+            private_key_passphrase=private_key_passphrase
         )
     except Exception:
         logger.exception("Failed to start scan %s", scan_id)
@@ -998,9 +1017,15 @@ def _apply_schedule_form(scheduled_scan, form, is_new):
             if not scheduled_scan.password_encrypted:
                 return 'Password is required when using password authentication.'
             scheduled_scan.private_key_encrypted = None
+            scheduled_scan.private_key_passphrase_encrypted = None
         else:
             if form.private_key.data and not keep_key:
                 scheduled_scan.private_key_encrypted = encrypt_data(form.private_key.data)
+                # A new key replaces the old passphrase (blank = key has no passphrase)
+                scheduled_scan.private_key_passphrase_encrypted = (
+                    encrypt_data(form.private_key_passphrase.data) if form.private_key_passphrase.data else None)
+            elif form.private_key_passphrase.data:
+                scheduled_scan.private_key_passphrase_encrypted = encrypt_data(form.private_key_passphrase.data)
             if not scheduled_scan.private_key_encrypted:
                 return 'Private key is required when using key authentication.'
             scheduled_scan.password_encrypted = None
@@ -1008,6 +1033,7 @@ def _apply_schedule_form(scheduled_scan, form, is_new):
         # The credential set supplies the secrets
         scheduled_scan.password_encrypted = None
         scheduled_scan.private_key_encrypted = None
+        scheduled_scan.private_key_passphrase_encrypted = None
 
     if form.sudo_password.data and not keep_sudo:
         scheduled_scan.sudo_password_encrypted = encrypt_data(form.sudo_password.data)
@@ -1170,11 +1196,17 @@ def _save_credential_set(credential_set, form, is_new):
         elif is_new or auth_changed or not credential_set.password_encrypted:
             return 'A password is required for password authentication.'
         credential_set.private_key_encrypted = None
+        credential_set.private_key_passphrase_encrypted = None
     else:
         if form.private_key.data:
             credential_set.private_key_encrypted = encrypt_data(form.private_key.data)
+            # A new key replaces the old passphrase (blank = key has no passphrase)
+            credential_set.private_key_passphrase_encrypted = (
+                encrypt_data(form.private_key_passphrase.data) if form.private_key_passphrase.data else None)
         elif is_new or auth_changed or not credential_set.private_key_encrypted:
             return 'A private key is required for key authentication.'
+        elif form.private_key_passphrase.data:
+            credential_set.private_key_passphrase_encrypted = encrypt_data(form.private_key_passphrase.data)
         credential_set.password_encrypted = None
 
     if form.sudo_password.data:

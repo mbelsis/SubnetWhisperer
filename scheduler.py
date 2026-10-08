@@ -146,6 +146,7 @@ class SchedulerService:
         username = scheduled_scan.username
         password = None
         private_key = None
+        private_key_passphrase = None
         sudo_password = None
         credential_set_ids = None
 
@@ -155,6 +156,8 @@ class SchedulerService:
             password = decrypt_data(scheduled_scan.password_encrypted)
         elif scheduled_scan.auth_type == 'key' and scheduled_scan.private_key_encrypted:
             private_key = decrypt_data(scheduled_scan.private_key_encrypted)
+            if scheduled_scan.private_key_passphrase_encrypted:
+                private_key_passphrase = decrypt_data(scheduled_scan.private_key_passphrase_encrypted)
         else:
             logger.error(f"Scheduled scan {scheduled_scan.id} has no usable credentials; skipping")
             return None
@@ -189,7 +192,8 @@ class SchedulerService:
             sudo_password=sudo_password,
             credential_set_ids=credential_set_ids,
             concurrency=scheduled_scan.concurrency or 10,
-            port=scheduled_scan.port or 22
+            port=scheduled_scan.port or 22,
+            private_key_passphrase=private_key_passphrase
         )
 
         logger.info(f"Scheduled scan {scheduled_scan.id} started with scan session {scan_session.id}")

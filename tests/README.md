@@ -19,7 +19,7 @@ They verify basic app behavior such as:
 Run them with:
 
 ```bash
-python3 -m unittest discover -s tests -v
+python -m unittest discover -s tests -v
 ```
 
 By default, the Docker integration tests are skipped during this command unless explicitly enabled.
@@ -96,6 +96,7 @@ If Python dependencies are missing, install them with:
 
 ```bash
 ./setup.sh
+source .venv/bin/activate   # run the commands below inside this virtualenv
 ```
 
 or install the dependencies listed in `pyproject.toml` (pinned in `uv.lock`) into your environment, for example with `uv export --frozen --no-dev --no-emit-project --no-hashes -o requirements.txt && python3 -m pip install -r requirements.txt`. Python 3.11+ is required.
@@ -105,7 +106,7 @@ or install the dependencies listed in `pyproject.toml` (pinned in `uv.lock`) int
 Recommended command:
 
 ```bash
-python3 tests/run_docker_integration.py
+python tests/run_docker_integration.py
 ```
 
 That runner sets the required environment flag and launches:
@@ -120,7 +121,7 @@ macOS / Linux:
 
 ```bash
 export RUN_DOCKER_TESTS=1
-python3 -m unittest tests.test_docker_integration -v
+python -m unittest tests.test_docker_integration -v
 ```
 
 Windows (cmd.exe):

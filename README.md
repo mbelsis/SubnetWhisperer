@@ -8,15 +8,59 @@ A web-based tool for scanning subnets, running commands over SSH and analysing t
 
 - **User Authentication**: login-protected interface with admin and non-admin roles
 - **Subnet Scanning**: scan IPv4 and IPv6 addresses, CIDR subnets and ranges in parallel
-- **SSH Connection**: password or private-key authentication, on a configurable port
+- **SSH Connection**: password or private-key authentication (with or without a key passphrase), sudo with or without a password, on a configurable port
 - **Command Execution**: run custom commands or predefined templates, with a best-effort command filter
 - **Server Profiling**: collect basic or detailed information about remote servers
 - **Result Analysis**: view and filter scan results with charts and statistics
 - **Export**: CSV (protected against spreadsheet formula injection), JSON or PDF
 - **Scheduled Scans**: recurring scans run by a background scheduler
-- **Encrypted Credential Storage**: SSH passwords, keys and sudo passwords are encrypted with Fernet
+- **Encrypted Credential Storage**: SSH passwords, keys, key passphrases and sudo passwords are encrypted with Fernet
 - **Multiple Credential Sets**: saved credential sets are tried in priority order
 - **Customizable Theme**: dark and light mode
+
+## Quick Start
+
+Pick one of the two ways below. Both give you the web app with a SQLite database stored in `instance/`.
+
+### A. Docker (recommended)
+
+Requires Docker with the Compose plugin.
+
+```bash
+git clone https://github.com/mbelsis/SubnetWhisperer.git
+cd SubnetWhisperer
+cp .env.example .env                 # optional settings; the defaults work
+./docker-start.sh                    # or: make run   (builds the image on first run)
+```
+
+Open http://localhost:5000. On **macOS**, port 5000 is used by the AirPlay Receiver: add `HOST_PORT=5050` to `.env` and open http://localhost:5050 instead.
+
+Get the first admin password (user `admin`):
+
+```bash
+cat instance/initial_admin_password
+# or: docker compose logs web | grep "initial admin"
+```
+
+### B. Local Python install (Linux and macOS)
+
+Requires Python 3.11 or newer (`python3 --version`; on macOS install it with `brew install python@3.12`).
+
+```bash
+git clone https://github.com/mbelsis/SubnetWhisperer.git
+cd SubnetWhisperer
+./setup.sh                           # or: PYTHON=python3.12 ./setup.sh
+source .venv/bin/activate
+set -a; . ./.env; set +a             # load your settings
+python main.py                       # macOS: PORT=5050 python main.py
+```
+
+Open http://127.0.0.1:5000 (or the port you chose). The first admin password is printed by `setup.sh` and saved in `instance/initial_admin_password`.
+
+### Then
+
+1. Log in as `admin` with that password. You are asked to choose a new password (at least 8 characters); the `initial_admin_password` file is deleted automatically afterwards.
+2. Follow the [Usage Guide](#usage-guide): add credentials, create a template, run a scan.
 
 ## System Requirements
 
@@ -80,24 +124,25 @@ SubnetWhisperer/
 ### Option 1: Setup Script (Linux and macOS)
 
 ```bash
-chmod +x setup.sh
-./setup.sh
+./setup.sh                      # uses python3
+PYTHON=python3.12 ./setup.sh    # or choose the interpreter
 ```
 
 The script:
-- checks for Python 3.11+ (`python3`, override with `PYTHON=/path/to/python`)
-- installs the dependencies (from `uv.lock` if `uv` is installed, otherwise from `pyproject.toml`)
+- checks for Python 3.11+ and stops with a clear error on older versions
+- uses the active virtualenv, or creates and uses `.venv/` (system and Homebrew Pythons refuse global `pip install`)
+- installs the dependencies (exact versions from `uv.lock` if `uv` is installed, otherwise the ranges in `pyproject.toml`)
 - creates `instance/` and `logs/`
 - creates `.env` from `.env.example` if it doesn't exist and appends a `SESSION_SECRET` if one is missing. An existing `.env` is never overwritten, and existing values are never changed
-- creates or updates the database schema (`run_migrations.py`) and stops with an error if that fails
+- creates or updates the database schema (`run_migrations.py`), creates the first admin account, and stops with an error if anything fails
 
-See [First Login](#first-login) for the admin password.
+It is safe to run again, for example after pulling a new version.
 
 ### Option 2: Manual Installation
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate            # Windows: venv\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
 # with uv (exact versions from uv.lock):
 uv export --frozen --no-dev --no-emit-project --no-hashes -o requirements.txt && pip install -r requirements.txt
 # or, without uv, install the dependencies listed in pyproject.toml:
@@ -106,7 +151,7 @@ pip install "email-validator>=2.2.0" "flask-wtf>=1.2.2" "flask>=3.1.0" "flask-sq
     "flask-login>=0.6.3" "matplotlib>=3.10.1" "sqlalchemy>=2.0.40" "bcrypt>=4.3.0" "cryptography>=44.0.2"
 
 mkdir -p instance logs
-python3 run_migrations.py   # optional: the schema is also synced when the app starts
+python run_migrations.py   # optional: the schema is also synced when the app starts
 ```
 
 ## Running the Application
@@ -114,7 +159,8 @@ python3 run_migrations.py   # optional: the schema is also synced when the app s
 ### Development server
 
 ```bash
-python3 main.py
+source .venv/bin/activate
+python main.py
 ```
 
 `main.py` starts Flask's development server (the database schema is created or updated automatically when the app is imported) on `FLASK_HOST` (default `127.0.0.1`) and `PORT` (default `5000`), so it is only reachable from the local machine by default. Debug mode (the Werkzeug debugger) is enabled only with `FLASK_DEBUG=true`. Never enable it on an address other people can reach: the debugger allows remote code execution.
@@ -123,8 +169,10 @@ The app does not read `.env` by itself. To use it outside Docker, export it firs
 
 ```bash
 set -a; . ./.env; set +a
-python3 main.py
+python main.py
 ```
+
+If port 5000 is busy (on macOS it is used by the AirPlay Receiver), choose another: `PORT=5050 python main.py`.
 
 ### Production (gunicorn)
 
@@ -138,10 +186,15 @@ Use one worker per instance: each process starts its own scheduler (see [Schedul
 
 On first start (when the database has no users) an `admin` account is created:
 
-- The password is the value of `ADMIN_PASSWORD`, if it is set.
-- Otherwise a random password is generated. It is logged once at WARNING level and written to `instance/initial_admin_password` (mode 600). Delete that file after you have logged in.
+- The password is the value of `ADMIN_PASSWORD`, if it is set when the database is first created.
+- Otherwise a random password is generated. It is logged once at WARNING level and written to `instance/initial_admin_password` (mode 600):
+  ```bash
+  cat instance/initial_admin_password
+  ```
 
-Either way, you must change the password at first login: until you do, every page redirects to **Change Password**. Passwords must be at least 8 characters.
+Either way, you must change the password at first login: until you do, every page redirects to **Change Password**. Passwords must be at least 8 characters. Once an admin has changed the password, `instance/initial_admin_password` is deleted automatically.
+
+Only a bcrypt hash of each user's password is stored, in the `users` table of the database. Lost the admin password? Another admin can reset it on **User Management**; if there is no other admin, stop the app, delete the database (`instance/subnet_whisperer.db`, which also deletes scans, templates, schedules and saved credentials), and start again to get a new first-run password.
 
 ## Docker Deployment
 
@@ -171,7 +224,7 @@ Compose reads `.env` from the project folder and passes these variables to the a
 - **Encryption key**: if `ENCRYPTION_KEY` is not set, the app creates `instance/.encryption_key` in the bind-mounted `./instance` folder on first start. Back it up.
 - **PostgreSQL**: the `postgres` profile takes `POSTGRES_USER` (default `postgres`), `POSTGRES_PASSWORD` (required) and `POSTGRES_DB` (default `subnet_whisperer`) and builds `DATABASE_URL` from them. The database port is **not** published on the host; only the app container can reach it. Use a password without URL-special characters (`@ : / ? #`).
 
-The app is available at http://localhost:5000.
+The app is available at http://localhost:5000, or on the port set with `HOST_PORT` in `.env` (for example `HOST_PORT=5050` on macOS, where port 5000 is used by the AirPlay Receiver). To follow the logs: `docker compose logs -f web`. To stop: `make stop` or `docker compose down`.
 
 ### Docker directly
 
@@ -214,6 +267,7 @@ All settings are environment variables. [.env.example](.env.example) documents e
 | `FLASK_DEBUG` | `false` | Werkzeug debugger (`main.py` only) |
 | `FLASK_HOST` | `127.0.0.1` | Bind address (`main.py` only) |
 | `PORT` | `5000` | Port (`main.py` only) |
+| `HOST_PORT` | `5000` | Host port published by docker compose |
 | `SESSION_COOKIE_SECURE` | `false` | Send the session cookie over HTTPS only |
 | `COMMAND_SANITIZATION` | `enabled` | Command filter mode (`enabled` or `disabled`) |
 | `SSH_HOST_KEY_POLICY` | `tofu` | `tofu`, `reject` or `warn` |
@@ -248,42 +302,111 @@ To use your own PostgreSQL server:
 
 ## Usage Guide
 
-### User Management (admin)
+A typical first session: log in, (admin) save your SSH credentials as credential sets, create a command template, run a scan, look at the results, then schedule it.
 
-From the user menu in the top-right corner, admins can create users (optionally with admin rights), reset passwords and delete users (but not their own account). Every user can change their own password. All pages require login.
+### 1. Log In and Manage Users
 
-### Scanning Subnets
+- Log in with your username and password. New users must change their password at first login.
+- **Change Password** is in the user menu (top right).
+- **User Management** (admin only, in the user menu): create users, optionally with admin rights; reset a user's password (they must change it at next login, and their open sessions are signed out); delete users (not yourself, and not the last admin).
 
-1. Open **Scan**.
-2. Enter targets, one per line or comma-separated: single addresses, CIDR subnets (`192.168.1.0/24`, `2001:db8::/120`) or ranges (`192.168.1.1-192.168.1.10`, `2001:db8::1-2001:db8::20`). IPv4 and IPv6 are both supported. Addresses are deduplicated and sorted, and invalid entries are reported. You can also import a CSV file.
-3. Enter the SSH credentials (username plus password or private key) and the port, or (admins) choose saved credential sets. Supported key types are Ed25519, RSA, ECDSA and DSA, in OpenSSH or PEM format; passphrase-protected keys are not supported.
-4. Choose a command template or enter custom commands.
-5. Choose the server-information level and the concurrency, then click **Start Scan**.
+See [Authentication and Roles](#authentication-and-roles) for what admins and other users can do.
 
-A single scan can include at most `MAX_SCAN_IPS` addresses (default 65536), and its concurrency is capped at `MAX_CONCURRENCY` (default 100, minimum 1).
+### 2. SSH Authentication Options
+
+Every combination of login method and sudo is supported:
+
+| SSH login | Sudo on the target | What to enter |
+|---|---|---|
+| Password | needs a password | username, SSH password, **sudo password** |
+| Password | no password (`NOPASSWD`) | username, SSH password (leave sudo password empty) |
+| Private key | needs a password | username, private key, **sudo password** |
+| Private key | no password (`NOPASSWD`) | username, private key |
+| Private key with a passphrase | either | as above, plus the **key passphrase** |
+| any | no sudo rights | works; `sudo` commands fail and root-only details are skipped |
+
+- **Private keys**: Ed25519, RSA, ECDSA and DSA, in OpenSSH (`-----BEGIN OPENSSH PRIVATE KEY-----`) or PEM format. Paste the whole private key, including the BEGIN/END lines. If the key has a passphrase, enter it in **Key Passphrase**; if you forget, the scan fails with "Private key is passphrase-protected; enter the key passphrase".
+- **Sudo password**: used only when sudo actually asks for one. With `NOPASSWD` sudo it is never sent.
+- **Port**: the SSH port (default 22).
+- The SSH, sudo and key passphrases are never shown in results, exports or logs.
+
+### 3. Save Credential Sets (admin)
+
+On **Credentials**, click **Add New Credential Set** and enter: username; authentication type (password or SSH key); the password, or the private key and its optional passphrase; an optional sudo password; a priority (higher is tried first); and a description.
+
+- Secrets are encrypted in the database (see [Where Credentials Are Stored](#where-credentials-are-stored)). They are never shown again: when you edit a set, leave the secret fields blank to keep the stored values. If you paste a new key, also enter its passphrase (blank means the new key has none).
+- A scan can use **one** set, or **all** sets: each host is then tried with every set in priority order until one logs in. This is useful when different servers use different accounts.
+- A set that is used by a schedule can't be deleted until the schedule is changed.
+
+### 4. Create Command Templates
+
+**Templates** lists reusable command lists that anyone can use in a scan. Admins can create them (name, description, one command per line), edit them (pencil button, then **Update Template**) and delete them. Names must be unique. Commands from a template run first, followed by any custom commands entered on the scan form.
+
+### 5. Run a Scan
+
+Open **Scan**:
+
+1. **Targets**: one per line or comma-separated. Single addresses (`192.168.1.10`, `2001:db8::5`), CIDR subnets (`192.168.1.0/24`, `2001:db8::/120`) or ranges (`192.168.1.1-192.168.1.10`, the short form `192.168.1.1-10`, or `2001:db8::1-2001:db8::20`). Click **Validate Subnets** to see how many addresses will be scanned, a sample, and any invalid entries. Or use the **CSV Import** tab: upload a CSV with a column named `ip`, `ip_address`, `subnet`, `address` or `network` (otherwise the first column is used); the addresses are loaded into the form for review, and invalid rows are reported.
+2. **Credentials**: enter them manually (see [SSH Authentication Options](#2-ssh-authentication-options)) or, as an admin, tick **Use Saved Credential Sets** and pick one set or all of them.
+3. **Commands**: pick a template and/or type custom commands, one per line. To run a command as root, start it with `sudo`, for example `sudo cat /var/log/syslog`. The [command filter](#command-filtering) rejects dangerous commands and, by default, pipes, redirects and chaining (`|`, `>`, `;`, `&&`); rejected commands are shown as **Blocked** in the results and are not run.
+4. **Server information**: tick **Collect Server Information** for the basic profile, and also **Collect Detailed Server Profile** for the detailed one (see below).
+5. **Concurrency** (hosts scanned at the same time, 1 to `MAX_CONCURRENCY`) and **Port**, then **Start Scan**.
+
+A progress dialog shows how many hosts are done. You can close it: the scan keeps running on the server. When it finishes, click **View Results**.
+
+Each command runs with a time limit (`SSH_COMMAND_TIMEOUT`, default 60 seconds) and its output is capped (`SSH_MAX_OUTPUT_BYTES`, default 1 MB per stream). Commands are run in a non-interactive session, so commands that wait for input (editors, `top`, prompts) time out. A single scan can include at most `MAX_SCAN_IPS` addresses (default 65536).
 
 ### Server Information Collection
 
-- **Basic**: hostname, OS, CPU, memory, disk
-- **Detailed**: also network interfaces, IP configuration, DNS settings, running services, network connections, default gateways, virtualization, login accounts, load average, installed packages (first 100; dpkg, rpm or apk) and firewall rules. Root-only details (firewall rules, `lshw` hardware data) are read through sudo when the account has sudo rights, with or without a sudo password; otherwise those sections stay empty.
+- **Basic**: hostname, OS, kernel, CPU, memory, disk usage, network interfaces, uptime.
+- **Detailed**: also DNS configuration, running services, listening network connections, network cards, default gateway, virtualization, login accounts, load average, installed packages (first 100; dpkg, rpm or apk) and firewall rules.
 
-### Command Templates
+Firewall rules (`iptables`/`nft`) and hardware details (`lshw`) need root: they are read through sudo when the account has sudo rights (with or without a sudo password); otherwise those sections stay empty. Running services need systemd (or OpenRC/`service`). Sections whose tools are missing on a host are shown as not available.
 
-Everyone can list templates and use them in scans. Admins can create, edit and delete them on the **Templates** page. Template names must be unique.
+### 6. View and Export Results
 
-### Viewing Results
+Open **Results**:
 
-Open **Results**, pick a scan session, filter the per-host results and open host details. Export as CSV, JSON or PDF. Times are stored in UTC and shown in your browser's local time. Admins can delete scans.
+- The **Recent Scans** table lists every scan session with its status (running, completed or failed) and success and failure counts. Click a session to see its hosts.
+- Filter hosts by status or sudo access, or search. Click the eye button to open a host's details:
+  - **Commands**: each command with its exit code, output and errors. Blocked commands are marked **Blocked**.
+  - **Server Info**: the collected profile.
+  - **Errors**: connection or authentication errors.
+- **Export** the session as **CSV** (one row per host), **JSON** (everything, including command output and server info) or **PDF** (summary charts and the first 20 hosts).
+- Admins can delete finished scans.
 
-### Managing Credential Sets (admin)
+Times are stored in UTC and shown in your browser's local time.
 
-On **Credentials**, admins can add, edit and delete credential sets: a username, password or SSH private key (encrypted at rest), an optional sudo password, a priority (higher is tried first) and a description. When a scan uses several credential sets, each host is tried with them in priority order.
+### 7. Schedule Recurring Scans (admin)
 
-### Scheduled Scans
+On **Schedules**, click **New Schedule** and fill in:
 
-Admins manage schedules on **Schedules**: targets, credentials (manual or a saved credential set), port, sudo password, commands, frequency (hourly, daily, weekly, monthly or custom), and optional start and end dates. **Start and end times are entered and stored in UTC.** A schedule whose end date has passed cannot be activated.
+- **Name and targets**: same format as on the scan page.
+- **Credentials**: username and password or key (with optional passphrase), **or** a saved credential set. Optionally a sudo password and the SSH port.
+- **Commands**: a template and/or custom commands, plus the server-information options and concurrency.
+- **Frequency**: hourly, daily, weekly, monthly (same day each month) or every N minutes (custom, minimum 5).
+- **Start and end dates, in UTC.** The first run happens at the start date. The end date is optional, and a schedule whose end date has passed cannot be activated.
 
-The scheduler runs in the background in the web process. It starts when the app is imported unless `START_SCHEDULER=false`, and it checks for due schedules every 60 seconds. Each run is claimed atomically in the database, so even if several processes run a scheduler, a schedule is not run twice. The default single-worker gunicorn setup is still recommended.
+The schedule list shows each schedule's next run. Use the buttons to view, edit, deactivate/activate (pause and play icons) or delete a schedule. Each run appears as a normal scan session on **Results**.
+
+The scheduler runs in the background inside the web process and checks for due schedules every 60 seconds. It starts with the app unless `START_SCHEDULER=false`. Each run is claimed atomically in the database, so even if several processes run a scheduler, a schedule is not run twice. The default single-worker gunicorn setup is still recommended. If the app was down when runs were due, the missed runs are skipped (not replayed) and the schedule continues at its next regular time.
+
+### 8. Settings
+
+**Settings** shows the configuration the running instance uses: command-filter mode, host-key policy, timeouts, limits, scheduler status, database type and where the encryption key comes from. It is read-only: settings are environment variables (see [Configuration](#configuration)), and changes need a restart. The theme (light or dark) is switched with the button in the navigation bar.
+
+### Where Credentials Are Stored
+
+| What | Where | How |
+|---|---|---|
+| App user passwords (including `admin`) | `users` table in the database | bcrypt hash only |
+| First admin password (generated) | `instance/initial_admin_password`, mode 600 | plain text, deleted after the first password change |
+| SSH passwords, private keys, key passphrases, sudo passwords (credential sets and schedules) | database | encrypted with Fernet |
+| Encryption key for the above | `ENCRYPTION_KEY` or `instance/.encryption_key` | **back it up**, never commit it |
+| Passwords typed on the scan form | memory only, for that scan | not stored |
+| SSH host keys (TOFU) | `instance/known_hosts` | plain text (public keys) |
+
+The database is `instance/subnet_whisperer.db` by default, or the PostgreSQL database in `DATABASE_URL`.
 
 ## Security
 
@@ -301,7 +424,7 @@ Subnet Whisperer stores SSH credentials and runs commands on remote hosts. Run i
 
 ### Encryption Key
 
-SSH passwords, private keys and sudo passwords are encrypted with Fernet. The key is chosen in this order:
+SSH passwords, private keys, key passphrases and sudo passwords are encrypted with Fernet. The key is chosen in this order:
 
 1. **`ENCRYPTION_KEY`**. It must be a valid Fernet key; if it isn't, the app refuses to start with a clear error. Generate one with:
    ```bash
@@ -392,13 +515,20 @@ See [TESTING.md](TESTING.md) and [tests/README.md](tests/README.md). Tests set `
 
 ## Troubleshooting
 
-- **SSH connection rejected with a host key error**: the host's key changed since it was first recorded (TOFU). Verify the change, then remove the host's line from `instance/known_hosts`.
-- **App won't start, "invalid ENCRYPTION_KEY"**: the value isn't a Fernet key. Generate one as shown above, or unset it to use `instance/.encryption_key`.
-- **Decryption errors**: the encryption key changed. Restore the old key, or re-enter the credentials.
-- **Permission denied on `instance/` in Docker**: see [Persistent Storage](#persistent-storage).
+- **"Address already in use" / port 5000 busy**: on macOS the AirPlay Receiver uses port 5000. Use `PORT=5050 python main.py`, or set `HOST_PORT=5050` in `.env` for Docker (or turn off AirPlay Receiver in System Settings).
+- **`setup.sh`: "Python 3.11 or higher is required"**: install a newer Python (`brew install python@3.12`, or your distribution's package) and run `PYTHON=python3.12 ./setup.sh`.
+- **Where is the admin password?** `cat instance/initial_admin_password` (first start only, until it is changed), or the `ADMIN_PASSWORD` you set. See [First Login](#first-login).
+- **"Host key verification FAILED"**: the host's key changed since it was first recorded (TOFU). Verify the change, then remove the host's line from `instance/known_hosts`.
+- **"Private key is passphrase-protected; enter the key passphrase"**: fill in **Key Passphrase**. "wrong passphrase, or unsupported or malformed key": check the passphrase and that you pasted the complete key.
+- **`sudo` commands fail**: enter the sudo password (unless the account has `NOPASSWD` sudo) and check that the account is allowed to use sudo on the target (`sudo -l`).
+- **Firewall rules or network cards are empty**: they need root; give the account sudo rights and the sudo password.
+- **Command shows "Blocked"**: the command filter rejected it; see [Command Filtering](#command-filtering).
+- **Command "timed out"**: it ran longer than `SSH_COMMAND_TIMEOUT` or waited for input; raise the timeout or make the command non-interactive.
+- **App won't start, "Invalid encryption key from ENCRYPTION_KEY"**: the value isn't a Fernet key. Generate one as shown in [Encryption Key](#encryption-key), or unset it to use `instance/.encryption_key`.
+- **"could not be decrypted (encryption key changed?)"**: restore the old key, or re-enter the credentials.
+- **Permission denied on `instance/` in Docker (Linux)**: see [Persistent Storage](#persistent-storage).
 - **"Too many IP addresses"**: split the scan, or raise `MAX_SCAN_IPS`.
-- **Slow scans**: adjust concurrency for your network and targets.
-- **Command failures with sudo**: check sudo permissions on the target hosts.
+- **Slow scans**: unreachable addresses wait for `SSH_CONNECT_TIMEOUT` (10 s); raise the concurrency or scan smaller ranges.
 
 ## Copyright and License
 
