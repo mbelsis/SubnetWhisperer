@@ -4,6 +4,21 @@ import json
 from enum import Enum
 from flask_login import UserMixin
 import bcrypt
+import calendar
+
+
+def _iso(dt):
+    """Serialize a naive UTC datetime as an ISO 8601 string with a Z suffix."""
+    return dt.isoformat() + 'Z' if dt else None
+
+
+def _add_months(dt, months):
+    """Add calendar months to a datetime, clamping the day to the month's length."""
+    month_index = dt.month - 1 + months
+    year = dt.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(dt.day, calendar.monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
 
 
 class User(UserMixin, db.Model):
@@ -14,6 +29,7 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
     is_admin = db.Column(db.Boolean, default=False)
+    must_change_password = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def set_password(self, password):
@@ -22,12 +38,21 @@ class User(UserMixin, db.Model):
     def check_password(self, password):
         return bcrypt.checkpw(password.encode('utf-8'), self.password_hash.encode('utf-8'))
 
+    def session_token(self):
+        """Short fingerprint of the password hash; changes whenever the password changes."""
+        return self.password_hash[-16:]
+
+    def get_id(self):
+        # Binding the login session to the password hash invalidates existing
+        # sessions when the password is changed or reset.
+        return f"{self.id}:{self.session_token()}"
+
     def to_dict(self):
         return {
             'id': self.id,
             'username': self.username,
             'is_admin': self.is_admin,
-            'created_at': self.created_at.isoformat(),
+            'created_at': _iso(self.created_at),
         }
 
 # Association table for scheduled_scans and scan_sessions
@@ -73,10 +98,19 @@ class CredentialSet(db.Model):
             'has_sudo_password': bool(self.sudo_password_encrypted),
             'description': self.description,
             'priority': self.priority,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
+            'created_at': _iso(self.created_at),
+            'updated_at': _iso(self.updated_at)
         }
     
+def _load_json(value):
+    """Parse a stored JSON column, returning the raw text if it is not valid JSON."""
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return value
+
 class ScheduleFrequency(str, Enum):
     HOURLY = 'hourly'
     DAILY = 'daily'
@@ -109,9 +143,9 @@ class ScanSession(db.Model):
             'collect_server_info': self.collect_server_info,
             'collect_detailed_info': self.collect_detailed_info,
             'status': self.status,
-            'started_at': self.started_at.isoformat() if self.started_at else None,
-            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
-            'created_at': self.created_at.isoformat(),
+            'started_at': _iso(self.started_at),
+            'completed_at': _iso(self.completed_at),
+            'created_at': _iso(self.created_at),
             'success_count': sum(1 for r in self.results if r.status_code == 'success'),
             'failed_count': sum(1 for r in self.results if r.status_code == 'failed'),
             'total_count': len(self.results)
@@ -142,11 +176,11 @@ class ScanResult(db.Model):
             'ssh_status': self.ssh_status,
             'sudo_status': self.sudo_status,
             'command_status': self.command_status,
-            'command_output': self.command_output,
-            'server_info': json.loads(self.server_info) if self.server_info else None,
+            'command_output': _load_json(self.command_output),
+            'server_info': _load_json(self.server_info),
             'error_message': self.error_message,
             'execution_time': self.execution_time,
-            'created_at': self.created_at.isoformat()
+            'created_at': _iso(self.created_at)
         }
 
 class CommandTemplate(db.Model):
@@ -164,7 +198,7 @@ class CommandTemplate(db.Model):
             'name': self.name,
             'description': self.description,
             'commands': self.commands,
-            'created_at': self.created_at.isoformat()
+            'created_at': _iso(self.created_at)
         }
         
 class ScheduledScan(db.Model):
@@ -181,6 +215,10 @@ class ScheduledScan(db.Model):
     # Note: Password/key are stored encrypted or are entered at runtime
     password_encrypted = db.Column(db.Text)
     private_key_encrypted = db.Column(db.Text)
+    sudo_password_encrypted = db.Column(db.Text)
+    port = db.Column(db.Integer, default=22)
+    # Optional saved credential set; when set it overrides username/password/key above
+    credential_set_id = db.Column(db.Integer, db.ForeignKey('credential_sets.id'))
     
     # Command options
     command_template_id = db.Column(db.Integer, db.ForeignKey('command_templates.id'))
@@ -204,6 +242,7 @@ class ScheduledScan(db.Model):
     
     # Relationships
     command_template = db.relationship('CommandTemplate', backref='scheduled_scans')
+    credential_set = db.relationship('CredentialSet', backref='scheduled_scans')
     scan_sessions = db.relationship('ScanSession', secondary='scheduled_scan_sessions', 
                                    backref='scheduled_scan')
     
@@ -217,6 +256,9 @@ class ScheduledScan(db.Model):
             'auth_type': self.auth_type,
             'has_password': bool(self.password_encrypted),
             'has_private_key': bool(self.private_key_encrypted),
+            'has_sudo_password': bool(self.sudo_password_encrypted),
+            'port': self.port,
+            'credential_set_id': self.credential_set_id,
             'command_template_id': self.command_template_id,
             'custom_commands': self.custom_commands,
             'collect_server_info': self.collect_server_info,
@@ -224,39 +266,54 @@ class ScheduledScan(db.Model):
             'concurrency': self.concurrency,
             'schedule_frequency': self.schedule_frequency,
             'custom_interval_minutes': self.custom_interval_minutes,
-            'start_date': self.start_date.isoformat() if self.start_date else None,
-            'end_date': self.end_date.isoformat() if self.end_date else None,
-            'next_run': self.next_run.isoformat() if self.next_run else None,
-            'last_run': self.last_run.isoformat() if self.last_run else None,
+            'start_date': _iso(self.start_date),
+            'end_date': _iso(self.end_date),
+            'next_run': _iso(self.next_run),
+            'last_run': _iso(self.last_run),
             'is_active': self.is_active,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat(),
+            'created_at': _iso(self.created_at),
+            'updated_at': _iso(self.updated_at),
         }
     
-    def calculate_next_run(self):
-        """Calculate the next run time based on schedule frequency"""
+    def _advance(self, base_time):
+        """Return base_time moved forward by one schedule interval."""
+        if self.schedule_frequency == ScheduleFrequency.HOURLY:
+            return base_time + timedelta(hours=1)
+        if self.schedule_frequency == ScheduleFrequency.DAILY:
+            return base_time + timedelta(days=1)
+        if self.schedule_frequency == ScheduleFrequency.WEEKLY:
+            return base_time + timedelta(weeks=1)
+        if self.schedule_frequency == ScheduleFrequency.MONTHLY:
+            return _add_months(base_time, 1)
+        minutes = max(self.custom_interval_minutes or 60, 1)  # CUSTOM, default 60 minutes
+        return base_time + timedelta(minutes=minutes)
+
+    def calculate_next_run(self, now=None):
+        """Calculate the next run time (UTC) based on schedule frequency.
+
+        The first run happens at start_date. Later runs are one interval after
+        the previous run; runs missed while the app was down are skipped rather
+        than replayed back-to-back.
+        """
         if not self.is_active:
             self.next_run = None
-            return
-            
-        base_time = self.last_run or self.start_date or datetime.utcnow()
-        
-        if self.schedule_frequency == ScheduleFrequency.HOURLY:
-            self.next_run = base_time + timedelta(hours=1)
-        elif self.schedule_frequency == ScheduleFrequency.DAILY:
-            self.next_run = base_time + timedelta(days=1)
-        elif self.schedule_frequency == ScheduleFrequency.WEEKLY:
-            self.next_run = base_time + timedelta(weeks=1)
-        elif self.schedule_frequency == ScheduleFrequency.MONTHLY:
-            # Add 30 days for simplicity
-            self.next_run = base_time + timedelta(days=30)
-        elif self.schedule_frequency == ScheduleFrequency.CUSTOM:
-            minutes = self.custom_interval_minutes or 60  # Default to 60 minutes
-            self.next_run = base_time + timedelta(minutes=minutes)
-            
-        # Check if end_date is specified and if next_run is after end_date
-        if self.end_date and self.next_run > self.end_date:
+            return None
+
+        now = now or datetime.utcnow()
+        start = self.start_date or now
+
+        if self.last_run is None:
+            next_run = start
+        else:
+            next_run = self._advance(max(self.last_run, start))
+            while next_run <= now:
+                next_run = self._advance(next_run)
+
+        # Deactivate once the schedule has run past its end date
+        if self.end_date and next_run > self.end_date:
             self.next_run = None
             self.is_active = False
-            
-        return self.next_run
+            return None
+
+        self.next_run = next_run
+        return next_run

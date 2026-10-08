@@ -54,16 +54,18 @@
                             <i class="fas fa-file-code me-1"></i> Templates
                         </a>
                     </li>
+                    {% if current_user.is_admin %}
                     <li class="nav-item">
                         <a class="nav-link {% if request.path == url_for('credentials') %}active{% endif %}" href="{{ url_for('credentials') }}">
                             <i class="fas fa-key me-1"></i> Credentials
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.path == url_for('schedules') %}active{% endif %}" href="{{ url_for('schedules') }}">
+                        <a class="nav-link {% if request.path.startswith(url_for('schedules')) %}active{% endif %}" href="{{ url_for('schedules') }}">
                             <i class="fas fa-calendar-alt me-1"></i> Schedules
                         </a>
                     </li>
+                    {% endif %}
                     <li class="nav-item">
                         <a class="nav-link {% if request.path == url_for('settings') %}active{% endif %}" href="{{ url_for('settings') }}">
                             <i class="fas fa-cog me-1"></i> Settings
@@ -93,7 +95,12 @@
                             <li><a class="dropdown-item" href="{{ url_for('user_management') }}"><i class="fas fa-users me-2"></i>User Management</a></li>
                             {% endif %}
                             <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+                            <li>
+                                <form method="POST" action="{{ url_for('logout') }}" class="m-0">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="dropdown-item"><i class="fas fa-sign-out-alt me-2"></i>Logout</button>
+                                </form>
+                            </li>
                         </ul>
                     </div>
                     {% endif %}
@@ -209,7 +216,8 @@
         const originalFetch = window.fetch;
         window.fetch = function(url, options) {
             options = options || {};
-            if (options.method && options.method !== 'GET') {
+            const method = (options.method || 'GET').toUpperCase();
+            if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
                 options.headers = options.headers || {};
                 if (options.headers instanceof Headers) {
                     if (!options.headers.has('X-CSRFToken')) {

@@ -47,6 +47,9 @@ def load_app_for_integration(db_name):
     os.environ["SESSION_SECRET"] = "docker-integration-session-secret"
     os.environ["ENCRYPTION_KEY"] = TEST_ENCRYPTION_KEY
     os.environ["START_SCHEDULER"] = "false"
+    os.environ.setdefault("ADMIN_PASSWORD", "integration-admin-pass")
+    # Test containers get fresh host keys on every build, so don't pin them
+    os.environ["SSH_HOST_KEY_POLICY"] = "warn"
 
     for module_name in [
         "app",
@@ -55,8 +58,9 @@ def load_app_for_integration(db_name):
         "ssh_utils",
         "subnet_utils",
         "encryption_utils",
-        "migrations.scheduled_scans",
-        "migrations.credential_sets",
+        "scheduler",
+        "migrations",
+        "migrations.schema",
     ]:
         sys.modules.pop(module_name, None)
 

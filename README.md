@@ -2,291 +2,237 @@
 
 ![Subnet Whisperer Logo](generated-icon.png)
 
-A powerful web-based tool for scanning subnets, executing commands via SSH, and analyzing results with multi-threading support. Featuring secure credential storage, scheduled scanning, and comprehensive server profiling capabilities.
-
+A web-based tool for scanning subnets, running commands over SSH and analysing the results, with multi-threaded scanning, encrypted credential storage, scheduled scans and server profiling.
 
 ## Features
 
-- **User Authentication**: Login-protected interface with user management and role-based access control
-- **Subnet Scanning**: Scan multiple IP addresses or subnets in parallel
-- **SSH Connection**: Connect to remote hosts using password or key-based authentication
-- **Command Execution**: Run custom commands or use predefined templates
-- **Server Profiling**: Collect basic or detailed information about remote servers
-- **Result Analysis**: View and filter scan results with charts and statistics
-- **Export Capabilities**: Export results in CSV, JSON, or PDF format
-- **Scheduled Scans**: Set up recurring scans to automate subnet monitoring
-- **Multi-threading**: Perform parallel scanning for efficient operations
-- **Secure Credential Storage**: Store SSH credentials with Fernet symmetric encryption
-- **Multiple Credential Sets**: Save and manage multiple credential sets with auto-try functionality
-- **Customizable Theme**: Switch between dark and light mode with smooth transitions
+- **User Authentication**: login-protected interface with admin and non-admin roles
+- **Subnet Scanning**: scan IPv4 and IPv6 addresses, CIDR subnets and ranges in parallel
+- **SSH Connection**: password or private-key authentication, on a configurable port
+- **Command Execution**: run custom commands or predefined templates, with a best-effort command filter
+- **Server Profiling**: collect basic or detailed information about remote servers
+- **Result Analysis**: view and filter scan results with charts and statistics
+- **Export**: CSV (protected against spreadsheet formula injection), JSON or PDF
+- **Scheduled Scans**: recurring scans run by a background scheduler
+- **Encrypted Credential Storage**: SSH passwords, keys and sudo passwords are encrypted with Fernet
+- **Multiple Credential Sets**: saved credential sets are tried in priority order
+- **Customizable Theme**: dark and light mode
 
 ## System Requirements
 
-- Python 3.10+
-- SQLite or PostgreSQL database
+- Python 3.11 or newer
+- SQLite (default) or PostgreSQL
 - Basic understanding of SSH and network operations
 
 ## Project Structure
 
 ```
-subnet_whisperer/
-├── instance/                  # Database files
-│   └── subnet_whisperer.db
-├── static/                    # Static assets
-│   ├── css/
-│   │   ├── custom.css        # Custom styling
-│   │   └── theme.css         # Dark/light theme support
-│   └── js/
-│       ├── main.js           # Common utility functions
-│       ├── results.js        # Results page functionality
-│       ├── scan.js           # Scan page functionality
-│       └── theme.js          # Theme switching functionality
-├── templates/                 # HTML templates
-│   ├── 404.html
-│   ├── 500.html
-│   ├── base.html             # Base template with common elements
-│   ├── change_password.html  # Password change page
-│   ├── credentials.html      # Credential management page
-│   ├── index.html            # Home page
-│   ├── login.html            # Login page
-│   ├── results.html          # Results viewing page
-│   ├── scan.html             # Scan configuration page
-│   ├── schedule_form.html    # Schedule creation/editing
-│   ├── schedule_detail.html  # Schedule details
-│   ├── schedules.html        # Schedule management
-│   ├── settings.html         # Application settings
-│   ├── templates.html        # Command templates management
-│   └── users.html            # User management page (admin)
+SubnetWhisperer/
 ├── app.py                    # Flask application and routes
-├── encryption_utils.py       # Secure encryption for credentials
-├── forms.py                  # Form definitions
-├── main.py                   # Application entry point
-├── run_migrations.py         # Database migration script
-├── models.py                 # Database models (User, ScanSession, etc.)
+├── main.py                   # Development entry point (python3 main.py)
+├── models.py                 # Database models (User, ScanSession, ScheduledScan, ...)
+├── forms.py                  # Flask-WTF form definitions
+├── encryption_utils.py       # Fernet key management and credential encryption
+├── security_utils.py         # Command filter and sensitive-data masking
+├── ssh_utils.py              # SSH connections, host-key policy, scan workers
+├── subnet_utils.py           # IPv4/IPv6 subnet, range and CSV parsing
 ├── scheduler.py              # Background scheduler for recurring scans
-├── setup.sh                  # Installation script
-├── ssh_utils.py              # SSH connection utilities
-└── subnet_utils.py           # Subnet parsing utilities
+├── run_migrations.py         # Creates/updates the schema explicitly (non-zero exit on failure)
+├── migrations/               # Schema sync (adds missing tables and columns)
+├── static/
+│   ├── css/                  # Custom styling and dark/light theme
+│   └── js/                   # Page scripts (common helpers, scan, results, theme)
+├── templates/                # Jinja2 HTML templates
+├── tests/                    # Unit smoke tests and Docker SSH integration tests
+│   ├── test_app.py
+│   ├── test_docker_integration.py
+│   ├── run_docker_integration.py
+│   ├── docker-compose.integration.yml
+│   ├── docker/               # SSH target images and test-only keys
+│   └── README.md
+├── instance/                 # Runtime data, created on first start, NOT in git
+│   ├── subnet_whisperer.db   #   SQLite database (default)
+│   ├── .encryption_key       #   Fernet key (if ENCRYPTION_KEY is not set): back it up
+│   ├── .secret_key           #   Session secret (if SESSION_SECRET is not set)
+│   ├── known_hosts           #   SSH host keys recorded by the TOFU policy
+│   └── initial_admin_password  # First admin password (only if ADMIN_PASSWORD was unset)
+├── logs/                     # Application logs
+├── Dockerfile                # Multi-stage image, runs gunicorn
+├── docker-compose.yml        # SQLite and PostgreSQL deployments
+├── docker-start.sh           # Compose wrapper (SQLite or postgres)
+├── .dockerignore
+├── Makefile                  # Docker shortcuts (run `make` for help)
+├── setup.sh                  # Local installation script
+├── .env.example              # Documented configuration variables
+├── pyproject.toml            # Project metadata and dependencies
+├── uv.lock                   # Pinned dependency versions
+├── TESTING.md                # Testing guide
+└── .replit, replit.nix       # Replit configuration
 ```
 
 ## Installation
 
 ### Prerequisites
 
-- Python 3.10 or higher
-- pip (Python package manager)
-- For SSH operations: 
-  - Linux: No additional packages needed (uses built-in SSH capabilities)
-  - macOS: No additional packages needed (uses built-in SSH capabilities)
-  - Windows: Microsoft Visual C++ 14.0 or greater is required for some dependencies
+- Python 3.11 or newer, with pip
+- Windows only: Microsoft Visual C++ 14.0 or newer may be needed for some dependencies
 
-### Option 1: Using the Setup Script (Recommended)
+### Option 1: Setup Script (Linux and macOS)
 
-The setup script will:
-- Install all required Python packages
-- Set up the SQLite database (default)
-- Create necessary directories
-- Configure basic environment variables
-- Create a default admin account
+```bash
+chmod +x setup.sh
+./setup.sh
+```
 
-Steps:
-1. Clone the repository
-2. Run the setup script:
-   ```bash
-   chmod +x setup.sh
-   ./setup.sh
-   ```
-3. A default admin account is created automatically:
-   - **Username:** `admin`
-   - **Password:** `admin`
+The script:
+- checks for Python 3.11+ (`python3`, override with `PYTHON=/path/to/python`)
+- installs the dependencies (from `uv.lock` if `uv` is installed, otherwise from `pyproject.toml`)
+- creates `instance/` and `logs/`
+- creates `.env` from `.env.example` if it doesn't exist and appends a `SESSION_SECRET` if one is missing. An existing `.env` is never overwritten, and existing values are never changed
+- creates or updates the database schema (`run_migrations.py`) and stops with an error if that fails
 
-> **Important:** Change the default admin password immediately after your first login via the user dropdown menu in the top-right corner.
+See [First Login](#first-login) for the admin password.
 
 ### Option 2: Manual Installation
 
-1. Clone the repository
-2. Create a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-3. Install dependencies:
-   ```bash
-   pip install flask flask-login flask-sqlalchemy flask-wtf gunicorn matplotlib pandas paramiko psycopg2-binary sqlalchemy wtforms email-validator cryptography bcrypt
-   ```
-4. Create the instance and logs directories:
-   ```bash
-   mkdir -p instance logs
-   ```
-5. Initialize the database and create the default admin account:
-   ```bash
-   python run_migrations.py
-   python -c "from app import app, db; app.app_context().push(); db.create_all()"
-   ```
-   The database initialization automatically creates a default admin account:
-   - **Username:** `admin`
-   - **Password:** `admin`
-
-> **Important:** Change the default admin password immediately after your first login via the user dropdown menu in the top-right corner.
-
-## Docker Deployment
-
-Subnet Whisperer can be easily deployed using Docker, which provides a consistent and isolated environment for running the application.
-
-### Option 1: Using Docker Compose (Recommended)
-
-You can also use the provided Makefile for common operations:
-
 ```bash
-# Build the Docker image
-make build
+python3 -m venv venv
+source venv/bin/activate            # Windows: venv\Scripts\activate
+# with uv (exact versions from uv.lock):
+uv export --frozen --no-dev --no-emit-project --no-hashes -o requirements.txt && pip install -r requirements.txt
+# or, without uv, install the dependencies listed in pyproject.toml:
+pip install "email-validator>=2.2.0" "flask-wtf>=1.2.2" "flask>=3.1.0" "flask-sqlalchemy>=3.1.1" \
+    "gunicorn>=23.0.0" "pandas>=2.2.3" "paramiko>=3.5.1" "psycopg2-binary>=2.9.10" "wtforms>=3.2.1" \
+    "flask-login>=0.6.3" "matplotlib>=3.10.1" "sqlalchemy>=2.0.40" "bcrypt>=4.3.0" "cryptography>=44.0.2"
 
-# Run with SQLite
-make run
-
-# Run with PostgreSQL
-make run-postgres
-
-# Stop containers
-make stop
-
-# Clean up (stop containers and remove volumes)
-make clean
+mkdir -p instance logs
+python3 run_migrations.py   # optional: the schema is also synced when the app starts
 ```
-
-
-This method sets up both the application and an optional PostgreSQL database:
-
-1. Make sure Docker and Docker Compose are installed on your system
-2. Run the application with SQLite (default):
-   ```bash
-   ./docker-start.sh
-   ```
-   Or with PostgreSQL:
-   ```bash
-   ./docker-start.sh postgres
-   ```
-3. Access the application at http://localhost:5000
-4. Log in with the default admin account:
-   - **Username:** `admin`
-   - **Password:** `admin`
-
-> **Important:** Change the default admin password immediately after your first login via the user dropdown menu in the top-right corner.
-
-### Option 2: Using Docker directly
-
-If you prefer to run only the application container:
-
-1. Build the Docker image:
-   ```bash
-   docker build -t subnet-whisperer .
-   ```
-2. Run the container:
-   ```bash
-   docker run -p 5000:5000 -v $(pwd)/instance:/app/instance -v $(pwd)/logs:/app/logs subnet-whisperer
-   ```
-3. Log in with the default admin account:
-   - **Username:** `admin`
-   - **Password:** `admin`
-
-> **Important:** Change the default admin password immediately after your first login.
-
-### Using Environment Variables with Docker
-For convenience, you can use the provided environment file template:
-
-```bash
-# Copy the example to create your own environment file
-cp .env.example .env
-
-# Edit the file with your settings
-nano .env
-
-# Run with your environment variables
-docker-compose --env-file .env up
-```
-
-
-You can configure the application with environment variables:
-
-```bash
-# Use PostgreSQL
-docker run -p 5000:5000 \
-  -e DATABASE_URL="postgresql://user:password@host/dbname" \
-  -e ENCRYPTION_KEY="your-secure-key" \
-  -e FLASK_SECRET_KEY="your-flask-secret" \
-  -v $(pwd)/instance:/app/instance \
-  -v $(pwd)/logs:/app/logs \
-  subnet-whisperer
-```
-
-### Docker Image Security
-
-The Docker image includes:
-- Minimal base image (python:3.11-slim)
-- Only necessary system dependencies
-- No development tools in the final image
-- Non-root user execution for better security
-
-### Persistent Storage
-
-The following directories are persisted as volumes:
-- `instance/`: Contains the SQLite database (if used) and encryption keys
-- `logs/`: Contains application logs
-
-When using PostgreSQL, the database data is stored in a named Docker volume.
-
 
 ## Running the Application
 
+### Development server
+
 ```bash
-python main.py
+python3 main.py
 ```
 
-The application will be available at http://localhost:5000
+`main.py` starts Flask's development server (the database schema is created or updated automatically when the app is imported) on `FLASK_HOST` (default `127.0.0.1`) and `PORT` (default `5000`), so it is only reachable from the local machine by default. Debug mode (the Werkzeug debugger) is enabled only with `FLASK_DEBUG=true`. Never enable it on an address other people can reach: the debugger allows remote code execution.
 
-### Default Admin Account
+The app does not read `.env` by itself. To use it outside Docker, export it first:
 
-On first run, a default admin account is created automatically:
-- **Username:** `admin`
-- **Password:** `admin`
+```bash
+set -a; . ./.env; set +a
+python3 main.py
+```
 
-> **Important:** Change the default admin password immediately after your first login. Navigate to the user dropdown in the top-right corner and select "Change Password".
+### Production (gunicorn)
+
+```bash
+gunicorn --bind 0.0.0.0:5000 --workers 1 --threads 4 main:app
+```
+
+Use one worker per instance: each process starts its own scheduler (see [Scheduled Scans](#scheduled-scans)). Put a TLS-terminating reverse proxy in front and set `SESSION_COOKIE_SECURE=true`.
+
+### First Login
+
+On first start (when the database has no users) an `admin` account is created:
+
+- The password is the value of `ADMIN_PASSWORD`, if it is set.
+- Otherwise a random password is generated. It is logged once at WARNING level and written to `instance/initial_admin_password` (mode 600). Delete that file after you have logged in.
+
+Either way, you must change the password at first login: until you do, every page redirects to **Change Password**. Passwords must be at least 8 characters.
+
+## Docker Deployment
+
+### Docker Compose (recommended)
+
+```bash
+cp .env.example .env      # then edit .env
+./docker-start.sh         # SQLite
+./docker-start.sh postgres  # PostgreSQL (POSTGRES_PASSWORD must be set)
+```
+
+Or with Make (run `make` on its own to list the targets):
+
+```bash
+make build          # Build the image
+make run            # Run with SQLite
+make run-postgres   # Run with PostgreSQL (needs POSTGRES_PASSWORD)
+make stop           # Stop all containers
+make clean          # Remove this project's containers, networks and volumes (including the PostgreSQL data volume)
+make prune          # Host-wide 'docker system prune', asks for confirmation first
+```
+
+The Makefile uses `docker compose`. For the legacy binary run `make COMPOSE=docker-compose <target>`.
+
+Compose reads `.env` from the project folder and passes these variables to the app: `ENCRYPTION_KEY`, `FLASK_SECRET_KEY` (legacy, no default), `SESSION_SECRET`, `ADMIN_PASSWORD`, `SESSION_COOKIE_SECURE`, `COMMAND_SANITIZATION`, `SSH_HOST_KEY_POLICY`, `MAX_SCAN_IPS`, `MAX_CONCURRENCY`, `START_SCHEDULER` and `DATABASE_URL`. Empty values count as unset.
+
+- **Encryption key**: if `ENCRYPTION_KEY` is not set, the app creates `instance/.encryption_key` in the bind-mounted `./instance` folder on first start. Back it up.
+- **PostgreSQL**: the `postgres` profile takes `POSTGRES_USER` (default `postgres`), `POSTGRES_PASSWORD` (required) and `POSTGRES_DB` (default `subnet_whisperer`) and builds `DATABASE_URL` from them. The database port is **not** published on the host; only the app container can reach it. Use a password without URL-special characters (`@ : / ? #`).
+
+The app is available at http://localhost:5000.
+
+### Docker directly
+
+```bash
+docker build -t subnet-whisperer .
+docker run -p 5000:5000 \
+  -e ENCRYPTION_KEY="<fernet key>" \
+  -e DATABASE_URL="postgresql://user:password@host/dbname" \
+  -v "$(pwd)/instance:/app/instance" \
+  -v "$(pwd)/logs:/app/logs" \
+  subnet-whisperer
+```
+
+### Docker Image
+
+- Multi-stage build on `python:3.11-slim`. Compilers and `-dev` headers are used only in the build stage; the runtime image contains the virtualenv, `openssh-client` and the app code.
+- Dependencies are installed at the exact versions pinned in `uv.lock`.
+- `tests/` (including its test-only SSH key), `instance/`, `.env` and docs are excluded by `.dockerignore`.
+- Runs as the non-root user `appuser` (uid 1000) with gunicorn on `0.0.0.0:5000`, 1 worker and 4 threads, without `--reload`.
+
+### Persistent Storage
+
+- `instance/` (bind mount): SQLite database, `.encryption_key`, `.secret_key`, `known_hosts`, `initial_admin_password`
+- `logs/` (bind mount): application logs
+- PostgreSQL data: the named volume `postgres_data`
+
+On Linux, the container user (uid 1000) must be able to write to `./instance` and `./logs`. If your host user has a different uid, run `sudo chown -R 1000:1000 instance logs`.
+
+## Configuration
+
+All settings are environment variables. [.env.example](.env.example) documents each one.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ENCRYPTION_KEY` | unset | Fernet key for stored credentials (see [Encryption Key](#encryption-key)) |
+| `FLASK_SECRET_KEY` / `SECRET_KEY` | unset | Legacy encryption-key derivation only |
+| `SESSION_SECRET` | `instance/.secret_key` | Flask session signing secret |
+| `ADMIN_PASSWORD` | random | First admin password (first start only) |
+| `DATABASE_URL` | `sqlite:///instance/subnet_whisperer.db` | SQLAlchemy database URL |
+| `FLASK_DEBUG` | `false` | Werkzeug debugger (`main.py` only) |
+| `FLASK_HOST` | `127.0.0.1` | Bind address (`main.py` only) |
+| `PORT` | `5000` | Port (`main.py` only) |
+| `SESSION_COOKIE_SECURE` | `false` | Send the session cookie over HTTPS only |
+| `COMMAND_SANITIZATION` | `enabled` | Command filter mode (`enabled` or `disabled`) |
+| `SSH_HOST_KEY_POLICY` | `tofu` | `tofu`, `reject` or `warn` |
+| `SSH_KNOWN_HOSTS_FILE` | `instance/known_hosts` | Known-hosts file used by the app |
+| `SSH_COMMAND_TIMEOUT` | `60` | Per-command timeout in seconds |
+| `SSH_CONNECT_TIMEOUT` | `10` | SSH connect, banner and auth timeout in seconds |
+| `SSH_MAX_OUTPUT_BYTES` | `1048576` | Output kept per stream per command (truncated beyond this) |
+| `MAX_SCAN_IPS` | `65536` | Maximum IP addresses per scan |
+| `MAX_CONCURRENCY` | `100` | Maximum concurrent connections per scan (minimum 1) |
+| `START_SCHEDULER` | `true` | Set to `false` to disable the background scheduler |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | `postgres`, required, `subnet_whisperer` | docker compose `postgres` profile |
 
 ## Database Setup
 
-### Understanding the Database Architecture
+Subnet Whisperer uses SQLAlchemy, so the same code runs on SQLite (default, a file in `instance/`) or PostgreSQL.
 
-Subnet Whisperer uses SQLAlchemy as the Object-Relational Mapping (ORM) layer to interact with databases. Here's a quick explanation of the components:
+To use your own PostgreSQL server:
 
-- **SQLAlchemy**: This is a Python library that provides an interface between Python code and databases. It's not a database itself but a tool that allows our application to work with different database systems through the same Python API.
-
-- **Database Backends**: The application supports two database backends:
-  - SQLite (default): A file-based, lightweight database
-  - PostgreSQL (optional): A more powerful, client-server database system
-
-The application code remains the same regardless of which database backend you choose. SQLAlchemy handles the translation between Python objects and the specific database's SQL dialect.
-
-### SQLite (Default)
-
-Subnet Whisperer uses SQLAlchemy with SQLite by default. The setup script automatically creates the SQLite database at `instance/subnet_whisperer.db` when you first run the application. No additional database software installation is required for the default SQLite configuration.
-
-### PostgreSQL (Optional)
-
-To use PostgreSQL instead of SQLite:
-
-1. Install PostgreSQL on your system:
-   ```bash
-   # On Debian/Ubuntu
-   sudo apt-get update
-   sudo apt-get install -y postgresql postgresql-contrib
-   
-   # On CentOS/RHEL
-   sudo yum install -y postgresql postgresql-server
-   sudo postgresql-setup initdb
-   sudo systemctl start postgresql
-   ```
-
-2. Create a database and user:
+1. Create a database and user:
    ```bash
    sudo -u postgres psql
    postgres=# CREATE DATABASE subnet_whisperer;
@@ -294,239 +240,165 @@ To use PostgreSQL instead of SQLite:
    postgres=# GRANT ALL PRIVILEGES ON DATABASE subnet_whisperer TO myuser;
    postgres=# \q
    ```
-
-3. Set the `DATABASE_URL` environment variable:
+2. Set `DATABASE_URL`:
    ```bash
    export DATABASE_URL="postgresql://myuser:mypassword@localhost/subnet_whisperer"
    ```
-
-4. Run the setup script to migrate the database:
-   ```bash
-   ./setup.sh
-   ```
-
-Note: The setup script will automatically install Python packages including `psycopg2-binary`, which is required for PostgreSQL connectivity.
+3. Run `./setup.sh` (or `python3 run_migrations.py`). The schema is also created or updated automatically when the app starts.
 
 ## Usage Guide
 
-### 1. User Management
+### User Management (admin)
 
-Admin users can manage accounts from the user dropdown menu in the top-right corner:
+From the user menu in the top-right corner, admins can create users (optionally with admin rights), reset passwords and delete users (but not their own account). Every user can change their own password. All pages require login.
 
-1. **Create users**: Click "User Management" then "Create User" to add new accounts
-2. **Assign roles**: Check "Admin privileges" when creating a user to grant admin access
-3. **Reset passwords**: Click "Reset Password" next to any user to set a new password
-4. **Delete users**: Remove user accounts (admins cannot delete their own account)
-5. **Change your password**: Select "Change Password" from the user dropdown menu
+### Scanning Subnets
 
-All routes require authentication. Unauthenticated users are redirected to the login page.
+1. Open **Scan**.
+2. Enter targets, one per line or comma-separated: single addresses, CIDR subnets (`192.168.1.0/24`, `2001:db8::/120`) or ranges (`192.168.1.1-192.168.1.10`, `2001:db8::1-2001:db8::20`). IPv4 and IPv6 are both supported. Addresses are deduplicated and sorted, and invalid entries are reported. You can also import a CSV file.
+3. Enter the SSH credentials (username plus password or private key) and the port, or (admins) choose saved credential sets.
+4. Choose a command template or enter custom commands.
+5. Choose the server-information level and the concurrency, then click **Start Scan**.
 
-### 2. Scanning Subnets
+A single scan can include at most `MAX_SCAN_IPS` addresses (default 65536), and its concurrency is capped at `MAX_CONCURRENCY` (default 100, minimum 1).
 
-1. Navigate to the "Scan" page
-2. Enter subnets in CIDR notation (e.g., 192.168.1.0/24) or IP ranges (e.g., 192.168.1.1-192.168.1.10)
-3. Enter SSH credentials (username and password/private key)
-4. Choose a command template or enter custom commands
-5. Set scan options (server information collection level, concurrency)
-6. Click "Start Scan"
+### Server Information Collection
 
-### 3. Server Information Collection
+- **Basic**: hostname, OS, CPU, memory, disk
+- **Detailed**: also network interfaces, IP configuration, DNS settings, running services, network connections, default gateways and virtualization
 
-The application offers two levels of server information collection:
+### Command Templates
 
-- **Basic Server Information**: Collects essential system details (hostname, OS, CPU, memory, disk)
-- **Detailed Server Profile**: Collects comprehensive information including:
-  - Network cards and interfaces
-  - IP configurations
-  - DNS settings
-  - Running services
-  - Network connections
-  - Default gateways
-  - Virtualization information
+Everyone can list templates and use them in scans. Admins can create, edit and delete them on the **Templates** page. Template names must be unique.
 
-### 4. Command Templates
+### Viewing Results
 
-Create reusable command templates for common operations:
+Open **Results**, pick a scan session, filter the per-host results and open host details. Export as CSV, JSON or PDF. Times are stored in UTC and shown in your browser's local time. Admins can delete scans.
 
-1. Navigate to the "Templates" page
-2. Enter a name and description for your template
-3. Add the commands you want to execute
-4. Save the template
+### Managing Credential Sets (admin)
 
-### 5. Viewing Results
+On **Credentials**, admins can add, edit and delete credential sets: a username, password or SSH private key (encrypted at rest), an optional sudo password, a priority (higher is tried first) and a description. When a scan uses several credential sets, each host is tried with them in priority order.
 
-1. Navigate to the "Results" page
-2. Select a scan session to view
-3. Explore scan results with filtering options
-4. View detailed information for each scanned host
-5. Export results in CSV, JSON, or PDF format
+### Scheduled Scans
 
-### 6. Managing Credential Sets
+Admins manage schedules on **Schedules**: targets, credentials (manual or a saved credential set), port, sudo password, commands, frequency (hourly, daily, weekly, monthly or custom), and optional start and end dates. **Start and end times are entered and stored in UTC.** A schedule whose end date has passed cannot be activated.
 
-1. Navigate to the "Credentials" page
-2. Click "Add New Credential Set" to create a new set of credentials
-3. Enter a username and choose authentication type (password or SSH key)
-4. Enter password or paste SSH private key (will be securely encrypted)
-5. Optionally enter a sudo password for elevated commands
-6. Set a priority level for auto-try functionality (higher number = higher priority)
-7. Add a description to help identify the credential set
-8. View, edit, or delete credential sets as needed
+The scheduler runs in the background in the web process. It starts when the app is imported unless `START_SCHEDULER=false`, and it checks for due schedules every 60 seconds. Each run is claimed atomically in the database, so even if several processes run a scheduler, a schedule is not run twice. The default single-worker gunicorn setup is still recommended.
 
-### 7. Setting Up Scheduled Scans
+## Security
 
-1. Navigate to the "Schedules" page
-2. Click "New Schedule" to create a scheduled scan
-3. Configure scan parameters (subnets, credentials, commands)
-4. Set the schedule frequency (hourly, daily, weekly, monthly, or custom)
-5. Define start and end dates (optional)
-6. Activate or deactivate schedules as needed
+Subnet Whisperer stores SSH credentials and runs commands on remote hosts. Run it on a trusted network, behind TLS, and give admin rights only to people who should be able to use every stored credential.
 
-## Security Features
+### Authentication and Roles
 
-- **User Authentication**: All routes require login; sessions managed via Flask-Login with bcrypt password hashing
-- **Role-Based Access**: Admin users can manage accounts; regular users can only change their own password
-- **CSRF Protection**: All forms and AJAX requests are protected against cross-site request forgery
-- **SSH Host Key Verification**: Unknown SSH host keys trigger warnings instead of being silently accepted
-- **Credential Encryption**: SSH credentials are secured using Fernet symmetric encryption
-- **Command Sanitization**: Blocks dangerous or destructive commands before they execute
-- **Sensitive Data Masking**: Automatically masks passwords, keys, and other sensitive information in logs
-- **Key Derivation**: Encryption keys are derived from application secrets or environment variables
-- **Secure Storage**: Passwords, SSH keys, and sudo passwords are stored with proper encryption
-- **Multiple Credential Sets**: Create and manage multiple credential sets with different priority levels
-- **Auto-Try Functionality**: System can automatically try multiple credential sets in order of priority
-- **Persistent Session Secret**: Session secret is persisted to disk, preventing session invalidation across restarts
+- All pages require login (Flask-Login, bcrypt password hashes, minimum length 8).
+- The first admin's password comes from `ADMIN_PASSWORD` or is generated (see [First Login](#first-login)). A password change is forced at first login.
+- **Admins** can: manage users; view and manage credential sets (`/credentials` and the credential API); use saved credential sets in scans; create, edit, activate and delete schedules; create, edit and delete command templates; delete scans.
+- **Non-admins** can: run scans with manually entered credentials; view results and exports; list templates and use them in scans; change their own password.
+- CSRF protection covers all forms and AJAX requests. Tokens last as long as the session.
+- Logout is a POST request with a CSRF token. Session cookies are `SameSite=Lax`, and `Secure` when `SESSION_COOKIE_SECURE=true`.
+- The session is signed with `SESSION_SECRET`, or with a secret generated once and stored in `instance/.secret_key`.
 
-### Encryption Configuration
+### Encryption Key
 
-For optimal security, set an `ENCRYPTION_KEY` environment variable:
-```bash
-export ENCRYPTION_KEY="your-secure-encryption-key"
-```
+SSH passwords, private keys and sudo passwords are encrypted with Fernet. The key is chosen in this order:
 
-Alternatively, set a `FLASK_SECRET_KEY` or `SECRET_KEY` environment variable:
-```bash
-export FLASK_SECRET_KEY="your-secure-application-secret"
-```
-
-If neither is provided, a temporary key will be generated, but credentials will need to be re-entered after application restart.
-
-### Command Sanitization Configuration
-
-To allow shell operators (pipes, redirects, command chaining) in SSH commands:
-```bash
-export COMMAND_SANITIZATION=disabled
-```
-
-When disabled, only truly destructive commands are blocked. See [Shell Operator Restrictions](#shell-operator-restrictions) for details. Default: `enabled`.
-
-## Security Features
-
-### Command Sanitization
-The application implements robust command sanitization to prevent dangerous commands from being executed on remote systems:
-
-- Block destructive commands (rm -rf, format operations, etc.)
-- Prevent shell command chaining and injection
-- Restrict commands targeting sensitive system files
-- Block execution of downloaded content
-- Prevent fork bombs and other denial-of-service attacks
-- Require explicit approval for privileged operations
-- Log all security-related decisions for audit purposes
-
-All sanitization patterns are defined in the `security_utils.py` file, including:
-- `DANGEROUS_COMMANDS`: List of specific dangerous commands that are blocked entirely
-- `DANGEROUS_PATTERNS`: Regex patterns that match potentially dangerous command structures
-- `RESTRICTED_COMMANDS`: Commands that require extra scrutiny or admin approval
-- `SENSITIVE_DATA_PATTERNS`: Patterns to identify and mask sensitive information in logs and outputs
-
-#### Shell Operator Restrictions
-
-By default, Subnet Whisperer **blocks commands** containing shell operators such as `|` (pipe), `>` (redirect), `;` (semicolon), `&&` (and), and `||` (or). This prevents shell injection attacks where a malicious or accidental command could chain destructive operations onto an otherwise safe command.
-
-> **Note:** Truly destructive commands (e.g., `rm -rf /`, fork bombs, disk wiping) are **always** blocked regardless of any configuration.
-
-##### Disabling Shell Operator Restrictions
-
-If you need to run complex commands with pipes, redirects, or chaining, you can disable these restrictions by setting the `COMMAND_SANITIZATION` environment variable:
-
-```bash
-# In your .env file or environment
-COMMAND_SANITIZATION=disabled
-```
-
-Or when running with Docker:
-```bash
-docker run -p 5000:5000 -e COMMAND_SANITIZATION=disabled subnet-whisperer
-```
-
-When disabled, commands like `ps aux | grep nginx`, `df -h | sort -k5 -rn`, and `cat /var/log/syslog | tail -100` will be allowed. The default value is `enabled`.
-
-##### When sanitization is enabled (default)
-
-**Examples of commands that will be blocked:**
-
-| Command | Reason |
-|---------|--------|
-| `ps aux \| grep nginx` | Contains pipe (`\|`) |
-| `echo "hello" > /tmp/test.txt` | Contains redirect (`>`) |
-| `cd /var/log; cat syslog` | Contains semicolon (`;`) |
-| `mkdir /tmp/backup && cp file /tmp/backup/` | Contains `&&` |
-| `cat /etc/hostname \|\| echo "unknown"` | Contains `\|\|` |
-| `df -h \| grep /dev` | Contains pipe (`\|`) |
-| `dmesg \| tail -50` | Contains pipe (`\|`) |
-
-**Examples of commands that will always be allowed:**
-
-| Command | Description |
-|---------|-------------|
-| `hostname -f` | Simple single command |
-| `uname -a` | System information |
-| `df -h` | Disk usage |
-| `free -m` | Memory usage |
-| `uptime` | System uptime |
-| `ls -la /var/log/` | Directory listing |
-| `cat /etc/os-release` | OS information |
-| `sudo apt list --installed` | List packages (sudo is allowed) |
-
-**Workaround (without disabling sanitization):** If you need to run commands that require pipes or redirection but prefer to keep sanitization enabled, create a shell script on the target server and execute it as a single command instead. For example:
-
-1. Create a script on the target server:
+1. **`ENCRYPTION_KEY`**. It must be a valid Fernet key; if it isn't, the app refuses to start with a clear error. Generate one with:
    ```bash
-   echo '#!/bin/bash' > /usr/local/bin/check-nginx.sh
-   echo 'ps aux | grep nginx | grep -v grep' >> /usr/local/bin/check-nginx.sh
-   chmod +x /usr/local/bin/check-nginx.sh
+   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
    ```
+2. **`instance/.encryption_key`**, if the file exists.
+3. **Legacy**: a key derived (PBKDF2) from `FLASK_SECRET_KEY` or `SECRET_KEY`. A warning is logged. Use this only to keep reading credentials from an old install.
+4. Otherwise a new key is generated and saved to `instance/.encryption_key` with mode 600.
 
-2. Then use Subnet Whisperer to run:
-   ```
-   /usr/local/bin/check-nginx.sh
-   ```
+**Keep and back up the key** (the `ENCRYPTION_KEY` value or `instance/.encryption_key`). If it is lost or changes, stored credentials can't be decrypted: decryption fails with an error and the credentials must be re-entered. Never commit the key or the `instance/` folder.
 
-### Credential Protection
-- All sensitive credentials are strongly encrypted using Fernet symmetric encryption
-- Private keys and passwords are never stored in plaintext
-- Sudo passwords are securely encrypted in the database
-- Multiple key derivation options for maximum security:
-  - Direct encryption key from environment variables
-  - Derived key from application secrets using PBKDF2
-  - Fall back to secure key storage on disk with proper permissions
-- Automatic masking of sensitive information in logs and outputs
+Server information and command output are stored **unencrypted** (after masking), so be careful with commands that print secrets.
 
-## Security Considerations
+### SSH Host Key Verification
 
-- Sensitive SSH credentials are encrypted in the database using Fernet symmetric encryption
-- SSH private keys are stored encrypted and only decrypted in memory when needed
-- Command validation blocks potentially dangerous operations before they reach remote systems
-- Sensitive information is automatically masked in logs and command outputs
-- Consider using key-based authentication instead of passwords for added security
-- Ensure you have permission to scan and connect to target hosts
-- **Important**: While credentials are encrypted and command outputs are filtered for sensitive data, server information and non-sensitive command outputs are stored in the database without encryption. Be cautious about what commands you run if they might return sensitive information.
+Set with `SSH_HOST_KEY_POLICY`:
+
+- **`tofu`** (default): trust on first use. The key of a host seen for the first time is recorded in `SSH_KNOWN_HOSTS_FILE` (default `instance/known_hosts`). If a known host later presents a different key, the connection is **rejected**. If a host's key legitimately changes, remove its line from that file.
+- **`reject`**: only connect to hosts already listed in the system known_hosts or the app's known_hosts file.
+- **`warn`**: legacy behavior. Any key is accepted and nothing is recorded, so there is no protection against man-in-the-middle attacks.
+
+### Output and Log Masking
+
+Passwords, private keys (including PKCS#8 and encrypted keys), tokens and similar values are masked in command output before it is stored or shown, and in the commands and messages written to the logs. The sudo password is masked wherever it appears. Masking is pattern-based, so treat it as a safety net, not a guarantee.
+
+### Command Filtering
+
+The command filter is a **best-effort guardrail against mistakes, not a security boundary**. Anyone who can run arbitrary commands over SSH with a set of credentials can do whatever those credentials allow, and a determined user can find commands the filter doesn't recognise. Control access with roles and with the permissions of the remote accounts.
+
+Commands are tokenized like a shell (shlex) and checked before they are sent. A rejected command is simply not run; the result shows it as blocked. There is no approval workflow.
+
+**Always blocked** (in every mode):
+
+- `rm` recursive deletes of `/`, `/*` or `~`, in any flag order (`-rf`, `-fr`, `-r -f`, `--recursive --force`, `--no-preserve-root`)
+- `find / ... -delete`
+- `mkfs` and its variants (`mkfs.ext4`, ...)
+- `dd`, `shred` or `wipefs` writing to block devices (`/dev/sd*`, `/dev/hd*`, `/dev/nvme*`, `/dev/vd*`, `/dev/xvd*`, `/dev/mmcblk*`)
+- fork bombs
+- `curl` or `wget` piped into `sh` or `bash`
+- `shutdown`, `reboot`, `halt`, `poweroff`, `init 0`/`init 6`, `telinit 0`/`telinit 6` when used as commands (a word such as `halting-problem` is fine)
+- `sudo -i`, `sudo -s`, `sudo su`
+- access to `/etc/shadow` (`cat /etc/passwd` is allowed)
+
+These checks also apply inside shell wrappers such as `bash -c "..."` or `sudo sh -c "..."`. Interpreters (`python -c`, `perl -e`, ...) are not inspected.
+
+**Also blocked when `COMMAND_SANITIZATION=enabled`** (the default):
+
+- shell operators and substitutions: `;`, `&&`, `||`, a single `&`, `|`, `>`, `<`, backticks, `$(`, `${` and newlines
+- restricted commands, matched on the command name (after any `sudo`), for example `systemctl`, `chmod`, `useradd` and the rest of `RESTRICTED_COMMANDS` in `security_utils.py`. So `systemctl status nginx` is rejected in enabled mode.
+
+With `COMMAND_SANITIZATION=disabled`, pipes, redirects, chaining and restricted commands are allowed; only the always-blocked list applies.
+
+Examples in enabled mode:
+
+| Command | Result |
+|---|---|
+| `uname -a`, `df -h`, `free -m`, `uptime`, `ls -la /var/log/` | allowed |
+| `cat /etc/os-release`, `cat /etc/passwd` | allowed |
+| `sudo apt list --installed` | allowed |
+| `ps aux \| grep nginx` | blocked (pipe) |
+| `cd /var/log; cat syslog` | blocked (`;`) |
+| `echo hi > /tmp/x` | blocked (redirect) |
+| `echo $(id)` | blocked (command substitution) |
+| `systemctl status nginx` | blocked (restricted command) |
+| `rm -fr /`, `sudo reboot` | blocked in every mode |
+
+To run pipelines while keeping the filter enabled, put them in a script on the target and run the script as a single command, or set `COMMAND_SANITIZATION=disabled`.
+
+## Upgrading from Earlier Versions
+
+- **`instance/` is no longer tracked in git.** Pulling the change that untracked it deletes `instance/.encryption_key` and `instance/subnet_whisperer.db` from your working copy. **Back up `instance/` before you pull** (`cp -a instance instance.backup`) and restore it afterwards. Keep your existing `instance/.encryption_key`: it is the key your stored credentials are encrypted with.
+- **The committed key is public.** The `.encryption_key` that used to be in the repository is known to anyone with access to it. If your install used that file, rotate the SSH credentials you stored, then start with a new key (delete `instance/.encryption_key` and set a fresh `ENCRYPTION_KEY`, or let the app generate a new file) and re-enter the credentials.
+- **docker-compose no longer sets `FLASK_SECRET_KEY`.** Old compose files defaulted it to `default_dev_key_please_change_in_production`, and the encryption key was derived from it. That key is public too. To read the old credentials once, either:
+  - set `ENCRYPTION_KEY` to the legacy derived key:
+    ```bash
+    python3 -c "import base64,sys; from cryptography.hazmat.primitives import hashes; from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC; print(base64.urlsafe_b64encode(PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=b'subnet_whisperer_secure_salt_v2', iterations=480000).derive(sys.argv[1].encode())).decode())" 'default_dev_key_please_change_in_production'
+    ```
+  - or set `FLASK_SECRET_KEY` to the old value and move `instance/.encryption_key` out of the way (the key file takes priority over `FLASK_SECRET_KEY`).
+
+  Either way, plan to rotate the credentials and move to a fresh key, or simply re-enter them.
+- **PostgreSQL in compose** now needs `POSTGRES_PASSWORD`, and port 5432 is no longer published. If your existing `postgres_data` volume was initialised with `postgres`/`postgres`, set `POSTGRES_PASSWORD=postgres` (or change the password inside the database first).
+- **Python 3.11** is now required.
+- **Schedules** are interpreted in UTC. Check the start and end times of existing schedules.
+
+## Testing
+
+See [TESTING.md](TESTING.md) and [tests/README.md](tests/README.md). Tests set `START_SCHEDULER=false`.
 
 ## Troubleshooting
 
-- **SSH Connection Issues**: Verify connectivity, credentials, and firewall settings
-- **Slow Scanning**: Adjust concurrency based on your network and target environment
-- **Command Execution Failures**: Check sudo permissions on target hosts
-- **Encryption Issues**: If you get decryption errors after upgrading, you may need to re-enter credentials
+- **SSH connection rejected with a host key error**: the host's key changed since it was first recorded (TOFU). Verify the change, then remove the host's line from `instance/known_hosts`.
+- **App won't start, "invalid ENCRYPTION_KEY"**: the value isn't a Fernet key. Generate one as shown above, or unset it to use `instance/.encryption_key`.
+- **Decryption errors**: the encryption key changed. Restore the old key, or re-enter the credentials.
+- **Permission denied on `instance/` in Docker**: see [Persistent Storage](#persistent-storage).
+- **"Too many IP addresses"**: split the scan, or raise `MAX_SCAN_IPS`.
+- **Slow scans**: adjust concurrency for your network and targets.
+- **Command failures with sudo**: check sudo permissions on the target hosts.
 
 ## Copyright and License
 
@@ -540,8 +412,6 @@ This project is free for any use as long as you include the original copyright s
 
 ## Screenshots
 
-### Modern UI Design
-
 #### Dashboard View
 ![Dashboard View](attached_assets/whisperer1.png)
 
@@ -550,4 +420,3 @@ This project is free for any use as long as you include the original copyright s
 
 #### Scheduled Scans Manager
 ![Scheduled Scans Manager](attached_assets/whisperer3.png)
-

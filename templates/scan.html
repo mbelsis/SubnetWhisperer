@@ -31,14 +31,14 @@
                 <div class="tab-content" id="scanTabsContent">
                     <!-- Manual Input Tab -->
                     <div class="tab-pane fade show active" id="manual" role="tabpanel" aria-labelledby="manual-tab">
-                        <form id="scan_form" class="needs-validation" novalidate>
+                        <div id="scanFormAlerts"></div>
+                        <form id="scan_form" novalidate>
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label for="subnets" class="form-label">Subnets or IP Addresses</label>
-                                    <textarea id="subnets" name="subnets" class="form-control" rows="5" required
+                                    <textarea id="subnets" name="subnets" class="form-control" rows="5"
                                               placeholder="Enter subnets in CIDR notation (e.g., 192.168.1.0/24)&#10;Or IP ranges (e.g., 192.168.1.1-192.168.1.10)&#10;One per line or comma-separated"></textarea>
-                                    <div class="form-text">Enter subnets in CIDR notation, IP ranges, or individual IP addresses</div>
-                                    <div class="invalid-feedback">Please enter at least one subnet or IP address</div>
+                                    <div class="form-text">Enter subnets in CIDR notation, IP ranges, or individual IP addresses (IPv4 or IPv6)</div>
                                 </div>
                                 
                                 <div class="col-md-6 mb-3">
@@ -73,18 +73,21 @@
                                     <div class="card border-light">
                                         <div class="card-header d-flex justify-content-between align-items-center">
                                             <span>Authentication Options</span>
+                                            {% if current_user.is_admin %}
                                             <div class="form-check form-switch">
                                                 <input class="form-check-input" type="checkbox" id="use_credential_sets" name="use_credential_sets">
                                                 <label class="form-check-label" for="use_credential_sets">Use Saved Credential Sets</label>
                                             </div>
+                                            {% endif %}
                                         </div>
                                         <div class="card-body">
-                                            <!-- Credential Sets Section (initially hidden) -->
+                                            {% if current_user.is_admin %}
+                                            <!-- Credential Sets Section (admin only, initially hidden) -->
                                             <div id="credential_set_section" class="d-none">
                                                 <div class="row mb-3">
                                                     <div class="col-md-8" id="credential_set_dropdown">
                                                         <label for="credential_set" class="form-label">Select Credential Set</label>
-                                                        <select id="credential_set" name="credential_set" class="form-select">
+                                                        <select id="credential_set" name="credential_set_id" class="form-select">
                                                             <option value="0">-- Select Credential Set --</option>
                                                             {% for cred in credential_sets %}
                                                                 <option value="{{ cred.id }}">{{ cred.username }} ({{ cred.auth_type|title }}) - {{ cred.description or 'No description' }}</option>
@@ -125,19 +128,20 @@
                                                     </div>
                                                 </div>
                                             </div>
+                                            {% endif %}
                                             
                                             <!-- Manual Credentials Section -->
                                             <div id="manual_credentials_section">
                                                 <div class="row">
                                                     <div class="col-md-4 mb-3">
                                                         <label for="username" class="form-label">SSH Username</label>
-                                                        <input type="text" id="username" name="username" class="form-control" required>
+                                                        <input type="text" id="username" name="username" class="form-control" autocomplete="off">
                                                         <div class="invalid-feedback">Please enter a username</div>
                                                     </div>
                                                     
                                                     <div class="col-md-4 mb-3">
                                                         <label for="authType" class="form-label">Authentication Type</label>
-                                                        <select id="authType" name="authType" class="form-select" required>
+                                                        <select id="authType" name="auth_type" class="form-select">
                                                             <option value="password" selected>Password</option>
                                                             <option value="key">SSH Key</option>
                                                         </select>
@@ -145,7 +149,7 @@
                                                     
                                                     <div class="col-md-4 mb-3" id="passwordField">
                                                         <label for="password" class="form-label">SSH Password</label>
-                                                        <input type="password" id="password" name="password" class="form-control" required>
+                                                        <input type="password" id="password" name="password" class="form-control" autocomplete="new-password">
                                                         <div class="invalid-feedback">Please enter a password</div>
                                                     </div>
                                                 </div>
@@ -153,13 +157,13 @@
                                                 <div class="row">
                                                     <div class="col-md-8 mb-3 d-none" id="privateKeyField">
                                                         <label for="privateKey" class="form-label">SSH Private Key</label>
-                                                        <textarea id="privateKey" name="privateKey" class="form-control" rows="3" placeholder="Paste your private key here"></textarea>
+                                                        <textarea id="privateKey" name="private_key" class="form-control" rows="3" placeholder="Paste your private key here"></textarea>
                                                         <div class="invalid-feedback">Please enter a private key</div>
                                                     </div>
                                                     
                                                     <div class="col-md-4 mb-3">
                                                         <label for="sudoPassword" class="form-label">Sudo Password (Optional)</label>
-                                                        <input type="password" id="sudoPassword" name="sudoPassword" class="form-control">
+                                                        <input type="password" id="sudoPassword" name="sudo_password" class="form-control" autocomplete="new-password">
                                                         <div class="form-text">For executing commands that require sudo</div>
                                                     </div>
                                                 </div>
@@ -174,7 +178,7 @@
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label for="commandTemplate" class="form-label">Command Template</label>
-                                    <select id="commandTemplate" name="commandTemplate" class="form-select">
+                                    <select id="commandTemplate" name="template_id" class="form-select">
                                         <option value="">-- Select Template --</option>
                                         {% for template in templates %}
                                         <option value="{{ template.id }}">{{ template.name }}</option>
@@ -185,7 +189,7 @@
                                 
                                 <div class="col-md-6 mb-3">
                                     <label for="customCommands" class="form-label">Custom Commands</label>
-                                    <textarea id="customCommands" name="customCommands" class="form-control" rows="5" 
+                                    <textarea id="customCommands" name="custom_commands" class="form-control" rows="5" 
                                               placeholder="Enter commands, one per line&#10;Example:&#10;hostname&#10;uptime&#10;df -h"></textarea>
                                 </div>
                             </div>
@@ -195,29 +199,38 @@
                             <div class="row">
                                 <div class="col-md-4 mb-3">
                                     <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" id="collectServerInfo" name="collectServerInfo">
+                                        <input class="form-check-input" type="checkbox" id="collectServerInfo" name="collect_server_info">
                                         <label class="form-check-label" for="collectServerInfo">Collect Server Information</label>
                                     </div>
                                     <div class="form-text">Gather basic information about each server</div>
                                     
                                     <div class="form-check form-switch mt-2">
-                                        <input class="form-check-input" type="checkbox" id="collectDetailedInfo" name="collectDetailedInfo">
+                                        <input class="form-check-input" type="checkbox" id="collectDetailedInfo" name="collect_detailed_info">
                                         <label class="form-check-label" for="collectDetailedInfo">Collect Detailed Server Profile</label>
                                     </div>
                                     <div class="form-text">Capture comprehensive system details (network cards, IP addresses, DNS, services)</div>
                                 </div>
                                 
-                                <div class="col-md-4 mb-3">
+                                <div class="col-md-2 mb-3">
                                     <label for="concurrency" class="form-label">Concurrency</label>
                                     <input type="number" id="concurrency" name="concurrency" class="form-control" value="10" min="1" max="100">
-                                    <div class="form-text">Number of parallel SSH connections</div>
+                                    <div class="form-text">Parallel SSH connections</div>
                                 </div>
                                 
-                                <div class="col-md-4 mb-3 d-flex align-items-end">
+                                <div class="col-md-2 mb-3">
+                                    <label for="port" class="form-label">SSH Port</label>
+                                    <input type="number" id="port" name="port" class="form-control" value="22" min="1" max="65535">
+                                    <div class="form-text">Default 22</div>
+                                </div>
+                                
+                                <div class="col-md-4 mb-3 d-flex align-items-start pt-md-4">
                                     <button type="button" id="validateSubnets" class="btn btn-info me-2">
                                         <i class="fas fa-check-circle me-1"></i> Validate Subnets
                                     </button>
-                                    <span id="validationResult" class="ms-2"></span>
+                                </div>
+                                
+                                <div class="col-md-12">
+                                    <div id="validationResult" aria-live="polite"></div>
                                 </div>
                             </div>
                             
@@ -234,13 +247,13 @@
                     
                     <!-- CSV Import Tab -->
                     <div class="tab-pane fade" id="csv" role="tabpanel" aria-labelledby="csv-tab">
-                        <form id="csvImportForm" class="needs-validation" novalidate>
+                        <div id="csvImportResult"></div>
+                        <form id="csvImportForm" novalidate>
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label for="csvFile" class="form-label">CSV File</label>
-                                    <input type="file" id="csvFile" name="csvFile" class="form-control" accept=".csv" required>
-                                    <div class="form-text">Upload a CSV file containing IP addresses or subnets</div>
-                                    <div class="invalid-feedback">Please select a CSV file</div>
+                                    <input type="file" id="csvFile" name="csvFile" class="form-control" accept=".csv,text/csv">
+                                    <div class="form-text">Upload a CSV file containing IP addresses or subnets. The parsed addresses are loaded into the scan form so you can review them before starting the scan.</div>
                                 </div>
                                 
                                 <div class="col-md-6 mb-3">
@@ -323,8 +336,9 @@ ip_address,location,notes
                 </div>
             </div>
             <div class="modal-footer">
+                <span class="text-muted small me-auto">Closing this dialog does not stop the scan.</span>
                 <button type="button" class="btn btn-secondary" id="cancelScan">
-                    <i class="fas fa-stop-circle me-1"></i> Cancel Scan
+                    <i class="fas fa-eye-slash me-1"></i> Close
                 </button>
                 <a href="#" id="viewResults" class="btn btn-success d-none">
                     <i class="fas fa-chart-bar me-1"></i> View Results
@@ -337,5 +351,4 @@ ip_address,location,notes
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/scan.js') }}"></script>
-<script src="{{ url_for('static', filename='js/scan_credentials.js') }}"></script>
 {% endblock %}

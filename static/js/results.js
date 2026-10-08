@@ -23,6 +23,21 @@ document.addEventListener('DOMContentLoaded', function() {
         ]
     });
     
+    // Helpers for values that may arrive either as JSON strings or as
+    // already-parsed objects (ScanResult.to_dict() returns parsed values).
+    function parseMaybeJson(value) {
+        return typeof value === 'string' ? JSON.parse(value) : value;
+    }
+
+    function stringifyMaybe(value) {
+        if (typeof value === 'string') return value;
+        try {
+            return JSON.stringify(value, null, 2);
+        } catch (e) {
+            return String(value);
+        }
+    }
+
     // Results table will be initialized when needed
     let resultsTable;
     
@@ -49,31 +64,34 @@ document.addEventListener('DOMContentLoaded', function() {
             window.location.reload();
         });
         
-        // View results buttons
-        document.querySelectorAll('.view-results').forEach(button => {
-            button.addEventListener('click', function() {
-                const scanId = this.getAttribute('data-scan-id');
-                loadScanResults(scanId);
-            });
-        });
-        
-        // Delete scan buttons
-        document.querySelectorAll('.delete-scan').forEach(button => {
-            button.addEventListener('click', function() {
-                const scanId = this.getAttribute('data-scan-id');
+        // View / delete buttons (delegated so they work on every DataTable page).
+        // Delete buttons are only rendered for admins.
+        document.getElementById('scanSessionsTable').addEventListener('click', function(e) {
+            const viewButton = e.target.closest('.view-results');
+            if (viewButton) {
+                loadScanResults(viewButton.getAttribute('data-scan-id'));
+                return;
+            }
+
+            const deleteButton = e.target.closest('.delete-scan');
+            if (deleteButton) {
+                const scanId = deleteButton.getAttribute('data-scan-id');
                 document.getElementById('deleteScanId').textContent = scanId;
                 document.getElementById('confirmDeleteScan').setAttribute('data-scan-id', scanId);
                 
-                const deleteScanModal = new bootstrap.Modal(document.getElementById('deleteScanModal'));
+                const deleteScanModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('deleteScanModal'));
                 deleteScanModal.show();
-            });
+            }
         });
         
         // Confirm delete scan
-        document.getElementById('confirmDeleteScan').addEventListener('click', function() {
-            const scanId = this.getAttribute('data-scan-id');
-            deleteScan(scanId);
-        });
+        const confirmDeleteScanBtn = document.getElementById('confirmDeleteScan');
+        if (confirmDeleteScanBtn) {
+            confirmDeleteScanBtn.addEventListener('click', function() {
+                const scanId = this.getAttribute('data-scan-id');
+                deleteScan(scanId);
+            });
+        }
         
         // Export buttons
         document.getElementById('exportCSV').addEventListener('click', function() {
@@ -94,7 +112,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!currentScanData) return;
             
             const scanId = document.getElementById('currentScanId').textContent;
-            window.location.href = `/scan_results/${scanId}/export/pdf`;
+            window.location.href = `/scan_results/${encodeURIComponent(scanId)}/export/pdf`;
         });
         
         // Filters
@@ -105,19 +123,29 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Load scan results
     function loadScanResults(scanId) {
-        // Show loading indicator
+        // Show loading indicator (without destroying the results markup)
         const resultDetails = document.getElementById('resultDetails');
-        resultDetails.style.display = 'block';
-        resultDetails.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"></div><p class="mt-3">Loading results...</p></div>';
+        const resultStatus = document.getElementById('resultLoadStatus');
+        if (resultStatus) {
+            resultStatus.style.display = 'block';
+            resultStatus.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"></div><p class="mt-3">Loading results...</p></div>';
+        }
         
-        fetch(`/scan_results/${scanId}`)
-            .then(response => response.json())
-            .then(data => {
+        apiFetch(`/scan_results/${encodeURIComponent(scanId)}`)
+            .then(({ ok, data }) => {
+                if (!ok) {
+                    throw new Error(data.error || 'Failed to load scan results');
+                }
+                if (resultStatus) {
+                    resultStatus.style.display = 'none';
+                    resultStatus.innerHTML = '';
+                }
+
                 // Store the scan data
-                currentScanData = data.results;
+                currentScanData = data.results || [];
                 
                 // Update the UI
-                document.getElementById('resultDetails').style.display = 'block';
+                resultDetails.style.display = 'block';
                 document.getElementById('currentScanId').textContent = scanId;
                 
                 updateScanSummary(data.results);
@@ -135,11 +163,15 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .catch(error => {
                 console.error('Error loading scan results:', error);
-                document.getElementById('resultDetails').innerHTML = `
-                    <div class="alert alert-danger">
-                        <i class="fas fa-exclamation-circle me-2"></i> Failed to load scan results.
-                    </div>
-                `;
+                resultDetails.style.display = 'none';
+                if (resultStatus) {
+                    resultStatus.style.display = 'block';
+                    resultStatus.innerHTML = `
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-circle me-2"></i> Failed to load scan results: ${escapeHtml(error.message)}
+                        </div>
+                    `;
+                }
             });
     }
     
@@ -167,6 +199,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Populate results table
     function populateResultsTable(results) {
         const tableBody = document.getElementById('resultsTableBody');
+        // Destroy any previous DataTable before touching the rows
+        if (resultsTable) {
+            resultsTable.destroy();
+            resultsTable = null;
+        }
         tableBody.innerHTML = '';
         
         if (!results || results.length === 0) {
@@ -185,7 +222,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             row.innerHTML = `
-                <td>${result.ip_address}</td>
+                <td>${escapeHtml(result.ip_address)}</td>
                 <td>
                     ${result.status_code === 'success' 
                         ? '<span class="badge bg-success">Success</span>' 
@@ -206,9 +243,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         ? '<span class="badge bg-success"><i class="fas fa-check"></i></span>' 
                         : '<span class="badge bg-danger"><i class="fas fa-times"></i></span>'}
                 </td>
-                <td>${formatExecutionTime(result.execution_time)}</td>
+                <td>${escapeHtml(formatExecutionTime(result.execution_time))}</td>
                 <td>
-                    <button type="button" class="btn btn-sm btn-primary view-result" data-result-id="${result.id}">
+                    <button type="button" class="btn btn-sm btn-primary view-result" data-result-id="${escapeHtml(result.id)}">
                         <i class="fas fa-eye"></i>
                     </button>
                 </td>
@@ -216,11 +253,6 @@ document.addEventListener('DOMContentLoaded', function() {
             
             tableBody.appendChild(row);
         });
-        
-        // Initialize DataTable if not already initialized
-        if (resultsTable) {
-            resultsTable.destroy();
-        }
         
         resultsTable = new DataTable('#resultsTable', {
             responsive: true,
@@ -230,13 +262,13 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
         
-        // Add event listeners to view result buttons
-        document.querySelectorAll('.view-result').forEach(button => {
-            button.addEventListener('click', function() {
-                const resultId = this.getAttribute('data-result-id');
-                showResultDetails(resultId);
-            });
-        });
+        // Delegate clicks so buttons on other DataTable pages work too
+        tableBody.onclick = function(e) {
+            const button = e.target.closest('.view-result');
+            if (button) {
+                showResultDetails(button.getAttribute('data-result-id'));
+            }
+        };
     }
     
     // Create charts
@@ -405,17 +437,21 @@ document.addEventListener('DOMContentLoaded', function() {
         
         document.getElementById('detailsIpAddress').textContent = result.ip_address;
         
-        // Populate command output
+        // Populate command output (may arrive as a JSON string or as a parsed list)
         let commandOutput = '';
         if (result.command_output) {
             try {
-                const commands = JSON.parse(result.command_output);
+                const commands = parseMaybeJson(result.command_output);
+                if (!Array.isArray(commands)) {
+                    throw new Error('command_output is not a list');
+                }
                 commandOutput = '<div class="accordion" id="commandOutputAccordion">';
                 
                 commands.forEach((cmd, index) => {
                     const headerId = `heading${index}`;
                     const collapseId = `collapse${index}`;
                     const isFirst = index === 0;
+                    cmd = cmd || {};
                     const statusClass = cmd.success ? 'text-success' : 'text-danger';
                     const statusIcon = cmd.success ? 'check-circle' : 'times-circle';
                     
@@ -426,9 +462,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                         data-bs-toggle="collapse" data-bs-target="#${collapseId}" 
                                         aria-expanded="${isFirst ? 'true' : 'false'}" aria-controls="${collapseId}">
                                     <i class="fas fa-${statusIcon} ${statusClass} me-2"></i>
-                                    <code>${cmd.command}</code>
+                                    <code>${escapeHtml(cmd.command)}</code>
+                                    ${cmd.security_blocked ? '<span class="ms-2 badge bg-warning text-dark">Blocked</span>' : ''}
                                     <span class="ms-auto badge ${cmd.success ? 'bg-success' : 'bg-danger'}">
-                                        Exit: ${cmd.exit_status}
+                                        Exit: ${escapeHtml(cmd.exit_status)}
                                     </span>
                                 </button>
                             </h2>
@@ -437,12 +474,12 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <div class="accordion-body">
                                     <div class="mb-3">
                                         <h6>Standard Output:</h6>
-                                        <pre class="bg-dark text-light p-2 rounded">${cmd.stdout || '<i class="text-muted">No output</i>'}</pre>
+                                        <pre class="bg-dark text-light p-2 rounded">${cmd.stdout ? escapeHtml(cmd.stdout) : '<i class="text-muted">No output</i>'}</pre>
                                     </div>
                                     ${cmd.stderr ? `
                                     <div>
                                         <h6>Standard Error:</h6>
-                                        <pre class="bg-dark text-light p-2 rounded">${cmd.stderr}</pre>
+                                        <pre class="bg-dark text-light p-2 rounded">${escapeHtml(cmd.stderr)}</pre>
                                     </div>
                                     ` : ''}
                                 </div>
@@ -456,7 +493,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 commandOutput = `<div class="alert alert-warning">
                     <i class="fas fa-exclamation-triangle me-2"></i> Failed to parse command output.
                 </div>
-                <pre class="bg-dark text-light p-2 rounded">${result.command_output}</pre>`;
+                <pre class="bg-dark text-light p-2 rounded">${escapeHtml(stringifyMaybe(result.command_output))}</pre>`;
             }
         } else {
             commandOutput = `<div class="alert alert-info">
@@ -470,7 +507,10 @@ document.addEventListener('DOMContentLoaded', function() {
         let serverInfoHtml = '';
         if (result.server_info) {
             try {
-                const serverInfo = JSON.parse(result.server_info);
+                const serverInfo = parseMaybeJson(result.server_info);
+                if (!serverInfo || typeof serverInfo !== 'object' || Array.isArray(serverInfo)) {
+                    throw new Error('server_info is not an object');
+                }
                 
                 // Hostname
                 if (serverInfo.hostname) {
@@ -484,15 +524,15 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <ul class="list-group list-group-flush">
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
                                             <span>Hostname</span>
-                                            <code>${serverInfo.hostname}</code>
+                                            <code>${escapeHtml(serverInfo.hostname)}</code>
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
                                             <span>Kernel</span>
-                                            <code>${serverInfo.kernel || 'N/A'}</code>
+                                            <code>${escapeHtml(serverInfo.kernel || 'N/A')}</code>
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
                                             <span>Uptime</span>
-                                            <code>${serverInfo.uptime || 'N/A'}</code>
+                                            <code>${escapeHtml(serverInfo.uptime || 'N/A')}</code>
                                         </li>
                                     </ul>
                                 </div>
@@ -513,15 +553,15 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <ul class="list-group list-group-flush">
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
                                             <span>Name</span>
-                                            <code>${serverInfo.os.PRETTY_NAME || serverInfo.os.NAME || 'N/A'}</code>
+                                            <code>${escapeHtml(serverInfo.os.PRETTY_NAME || serverInfo.os.NAME || 'N/A')}</code>
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
                                             <span>Version</span>
-                                            <code>${serverInfo.os.VERSION_ID || 'N/A'}</code>
+                                            <code>${escapeHtml(serverInfo.os.VERSION_ID || 'N/A')}</code>
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
                                             <span>ID</span>
-                                            <code>${serverInfo.os.ID || 'N/A'}</code>
+                                            <code>${escapeHtml(serverInfo.os.ID || 'N/A')}</code>
                                         </li>
                                     </ul>
                                 </div>
@@ -542,15 +582,15 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <ul class="list-group list-group-flush">
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
                                             <span>Model</span>
-                                            <code>${serverInfo.cpu['Model name'] || 'N/A'}</code>
+                                            <code>${escapeHtml(serverInfo.cpu['Model name'] || 'N/A')}</code>
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
                                             <span>CPUs</span>
-                                            <code>${serverInfo.cpu['CPU(s)'] || 'N/A'}</code>
+                                            <code>${escapeHtml(serverInfo.cpu['CPU(s)'] || 'N/A')}</code>
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
                                             <span>Architecture</span>
-                                            <code>${serverInfo.cpu['Architecture'] || 'N/A'}</code>
+                                            <code>${escapeHtml(serverInfo.cpu['Architecture'] || 'N/A')}</code>
                                         </li>
                                     </ul>
                                 </div>
@@ -571,15 +611,15 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <ul class="list-group list-group-flush">
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
                                             <span>Total</span>
-                                            <code>${serverInfo.memory.total}</code>
+                                            <code>${escapeHtml(serverInfo.memory.total)}</code>
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
                                             <span>Used</span>
-                                            <code>${serverInfo.memory.used}</code>
+                                            <code>${escapeHtml(serverInfo.memory.used)}</code>
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
                                             <span>Free</span>
-                                            <code>${serverInfo.memory.free}</code>
+                                            <code>${escapeHtml(serverInfo.memory.free)}</code>
                                         </li>
                                     </ul>
                                 </div>
@@ -614,16 +654,16 @@ document.addEventListener('DOMContentLoaded', function() {
                     
                     // Skip the header row
                     for (let i = 1; i < serverInfo.disk.length; i++) {
-                        const diskParts = serverInfo.disk[i].split(/\s+/);
+                        const diskParts = String(serverInfo.disk[i]).split(/\s+/);
                         if (diskParts.length >= 6) {
                             serverInfoHtml += `
                                 <tr>
-                                    <td>${diskParts[0]}</td>
-                                    <td>${diskParts[1]}</td>
-                                    <td>${diskParts[2]}</td>
-                                    <td>${diskParts[3]}</td>
-                                    <td>${diskParts[4]}</td>
-                                    <td>${diskParts[5]}</td>
+                                    <td>${escapeHtml(diskParts[0])}</td>
+                                    <td>${escapeHtml(diskParts[1])}</td>
+                                    <td>${escapeHtml(diskParts[2])}</td>
+                                    <td>${escapeHtml(diskParts[3])}</td>
+                                    <td>${escapeHtml(diskParts[4])}</td>
+                                    <td>${escapeHtml(diskParts[5])}</td>
                                 </tr>
                             `;
                         }
@@ -650,7 +690,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 networkInfo += `
                                     <div class="card mb-3">
                                         <div class="card-header">
-                                            <h6 class="mb-0">${iface.ifname}</h6>
+                                            <h6 class="mb-0">${escapeHtml(iface.ifname)}</h6>
                                         </div>
                                         <div class="card-body">
                                             <ul class="list-group list-group-flush">
@@ -660,8 +700,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                     iface.addr_info.forEach(addr => {
                                         networkInfo += `
                                             <li class="list-group-item d-flex justify-content-between align-items-center">
-                                                <span>${addr.family}</span>
-                                                <code>${addr.local}/${addr.prefixlen}</code>
+                                                <span>${escapeHtml(addr.family)}</span>
+                                                <code>${escapeHtml(addr.local)}/${escapeHtml(addr.prefixlen)}</code>
                                             </li>
                                         `;
                                     });
@@ -676,7 +716,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         });
                     } else if (typeof serverInfo.network === 'string') {
                         // Plain text format
-                        networkInfo = `<pre class="bg-dark text-light p-2 rounded">${serverInfo.network}</pre>`;
+                        networkInfo = `<pre class="bg-dark text-light p-2 rounded">${escapeHtml(serverInfo.network)}</pre>`;
                     }
                     
                     if (networkInfo) {
@@ -704,7 +744,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <h6 class="mb-0"><i class="fas fa-dns me-2"></i> DNS Configuration</h6>
                                 </div>
                                 <div class="card-body">
-                                    <pre class="bg-dark text-light p-2 rounded small">${serverInfo.dns_config.join('\n')}</pre>
+                                    <pre class="bg-dark text-light p-2 rounded small">${escapeHtml(serverInfo.dns_config.join('\n'))}</pre>
                                 </div>
                             </div>
                         </div>
@@ -730,11 +770,11 @@ document.addEventListener('DOMContentLoaded', function() {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                ${services.map(service => `<tr><td class="small">${service}</td></tr>`).join('')}
+                                                ${services.map(service => `<tr><td class="small">${escapeHtml(typeof service === 'string' ? service : JSON.stringify(service))}</td></tr>`).join('')}
                                             </tbody>
                                         </table>
                                     </div>
-                                    ${serverInfo.running_services.length > 15 ? `<small class="text-muted">Showing 15 of ${serverInfo.running_services.length} services</small>` : ''}
+                                    ${serverInfo.running_services.length > 15 ? `<small class="text-muted">Showing 15 of ${escapeHtml(serverInfo.running_services.length)} services</small>` : ''}
                                 </div>
                             </div>
                         </div>
@@ -749,7 +789,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <h6 class="mb-0"><i class="fas fa-exchange-alt me-2"></i> Network Connections</h6>
                                 </div>
                                 <div class="card-body">
-                                    <pre class="bg-dark text-light p-2 rounded small">${serverInfo.network_connections.join('\n')}</pre>
+                                    <pre class="bg-dark text-light p-2 rounded small">${escapeHtml(serverInfo.network_connections.join('\n'))}</pre>
                                 </div>
                             </div>
                         </div>
@@ -764,7 +804,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <h6 class="mb-0"><i class="fas fa-network-wired me-2"></i> Network Cards</h6>
                                 </div>
                                 <div class="card-body">
-                                    <pre class="bg-dark text-light p-2 rounded small">${serverInfo.ethernet_cards.join('\n')}</pre>
+                                    <pre class="bg-dark text-light p-2 rounded small">${escapeHtml(serverInfo.ethernet_cards.join('\n'))}</pre>
                                 </div>
                             </div>
                         </div>
@@ -779,7 +819,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <h6 class="mb-0"><i class="fas fa-route me-2"></i> Default Gateway</h6>
                                 </div>
                                 <div class="card-body">
-                                    <pre class="bg-dark text-light p-2 rounded">${serverInfo.default_gateway}</pre>
+                                    <pre class="bg-dark text-light p-2 rounded">${escapeHtml(serverInfo.default_gateway)}</pre>
                                 </div>
                             </div>
                         </div>
@@ -794,7 +834,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <h6 class="mb-0"><i class="fas fa-cloud me-2"></i> Virtualization</h6>
                                 </div>
                                 <div class="card-body">
-                                    <pre class="bg-dark text-light p-2 rounded">${serverInfo.virtualization}</pre>
+                                    <pre class="bg-dark text-light p-2 rounded">${escapeHtml(serverInfo.virtualization)}</pre>
                                 </div>
                             </div>
                         </div>
@@ -807,7 +847,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <div class="alert alert-warning">
                             <i class="fas fa-exclamation-triangle me-2"></i> Failed to parse server information.
                         </div>
-                        <pre class="bg-dark text-light p-2 rounded">${result.server_info}</pre>
+                        <pre class="bg-dark text-light p-2 rounded">${escapeHtml(stringifyMaybe(result.server_info))}</pre>
                     </div>
                 `;
             }
@@ -825,7 +865,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Populate error message
         if (result.error_message) {
-            document.getElementById('errorContainer').innerHTML = result.error_message;
+            document.getElementById('errorContainer').textContent = result.error_message;
         } else {
             document.getElementById('errorContainer').innerHTML = '<i class="text-muted">No errors reported.</i>';
         }
@@ -837,24 +877,31 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Delete a scan
     function deleteScan(scanId) {
-        fetch(`/api/delete_scan/${scanId}`, {
+        const modalInstance = bootstrap.Modal.getInstance(document.getElementById('deleteScanModal'));
+        apiFetch(`/api/delete_scan/${encodeURIComponent(scanId)}`, {
             method: 'DELETE'
         })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                // Hide the modal
-                bootstrap.Modal.getInstance(document.getElementById('deleteScanModal')).hide();
-                
+        .then(({ ok, status, data }) => {
+            if (modalInstance) modalInstance.hide();
+
+            if (ok && data.success) {
                 // Remove the row from the table
-                scanSessionsTable.row(`tr[data-scan-id="${scanId}"]`).remove().draw();
+                const row = document.querySelector(`#scanSessionsTable tr[data-scan-id="${CSS.escape(String(scanId))}"]`);
+                if (row) {
+                    scanSessionsTable.row(row).remove().draw();
+                }
                 
                 // If current results are from the deleted scan, hide them
-                if (document.getElementById('currentScanId').textContent === scanId) {
+                if (document.getElementById('currentScanId').textContent === String(scanId)) {
                     document.getElementById('resultDetails').style.display = 'none';
+                    currentScanData = null;
                 }
                 
                 showToast('Scan deleted successfully', 'Success', 'success');
+            } else if (status === 403) {
+                showToast('You are not allowed to delete scans. Ask an administrator.', 'Not allowed', 'danger');
+            } else if (status === 404) {
+                showToast(data.error || 'Scan not found', 'Error', 'danger');
             } else {
                 showToast(data.error || 'Failed to delete scan', 'Error', 'danger');
             }
@@ -871,6 +918,15 @@ document.addEventListener('DOMContentLoaded', function() {
         return time < 1 ? `${Math.round(time * 1000)}ms` : `${time.toFixed(2)}s`;
     }
     
+    // Quote a CSV cell and neutralise spreadsheet formulas (=, +, -, @, tab, CR)
+    function csvCell(value) {
+        let str = value === null || value === undefined ? '' : String(value);
+        if (/^[=+\-@\t\r]/.test(str)) {
+            str = "'" + str;
+        }
+        return `"${str.replace(/"/g, '""')}"`;
+    }
+
     // Convert results to CSV format
     function convertToCSV(results) {
         if (!results || results.length === 0) return '';
@@ -892,15 +948,16 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Add data rows
         results.forEach(result => {
+            const createdAt = parseServerDate(result.created_at);
             const row = [
-                `"${result.ip_address}"`,
-                `"${result.status_code}"`,
+                csvCell(result.ip_address),
+                csvCell(result.status_code),
                 result.ssh_status ? 'Yes' : 'No',
                 result.sudo_status ? 'Yes' : 'No',
                 result.command_status ? 'Yes' : 'No',
                 result.execution_time || 'N/A',
-                `"${(result.error_message || '').replace(/"/g, '""')}"`,
-                new Date(result.created_at).toISOString()
+                csvCell(result.error_message || ''),
+                createdAt ? createdAt.toISOString() : ''
             ];
             
             csvContent += row.join(',') + '\n';

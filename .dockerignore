@@ -2,15 +2,16 @@
 .git
 .gitignore
 
-# Virtual environment
+# Virtual environments
 venv/
+.venv/
 env/
 ENV/
 
-# Instance folder (persistent data will be mounted as volume)
+# Instance folder (persistent data, keys and DBs are mounted as a volume)
 instance/
 
-# Logs folder (will be mounted as volume)
+# Logs folder (mounted as a volume)
 logs/
 
 # Python cache
@@ -26,20 +27,27 @@ __pycache__/
 Dockerfile
 docker-compose.yml
 
+# Tests (includes a test-only SSH private key that must not ship in the image)
+tests/
+
 # IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Environment files
+# Environment files (may contain secrets)
 .env
-.env.local
+.env.*
+!.env.example
 
-# Documentation
+# Documentation and leftovers
 README.md
+README.md.bak
+TESTING.md
 LICENSE
 attached_assets/
+generated-icon.png
 
 # Local development files
 *.sqlite

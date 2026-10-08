@@ -95,7 +95,7 @@ class ScheduledScanForm(FlaskForm):
     subnets = TextAreaField('Subnets', validators=[DataRequired()], 
                            description='Enter subnets in CIDR notation (e.g., 192.168.1.0/24) or IP ranges (e.g., 192.168.1.1-192.168.1.10), one per line or comma-separated')
     
-    username = StringField('SSH Username', validators=[DataRequired()])
+    username = StringField('SSH Username', validators=[Optional()])
     
     auth_type = SelectField('Authentication Type', 
                            choices=[
@@ -109,6 +109,16 @@ class ScheduledScanForm(FlaskForm):
     private_key = TextAreaField('SSH Private Key', validators=[Optional()],
                               description='Paste your private key here')
     
+    sudo_password = PasswordField('Sudo Password', validators=[Optional()],
+                                description='Password for sudo commands (optional)')
+
+    port = IntegerField('SSH Port', validators=[Optional(), NumberRange(min=1, max=65535)],
+                        default=22)
+
+    credential_set_id = SelectField('Saved Credential Set', validators=[Optional()], coerce=int,
+                                    default=0,
+                                    description='Use a saved credential set instead of the credentials above')
+
     command_template = SelectField('Command Template', validators=[Optional()],
                                  coerce=int)
     
@@ -127,32 +137,52 @@ class ScheduledScanForm(FlaskForm):
     # Schedule configuration
     schedule_frequency = SelectField('Frequency', 
                                    choices=[
-                                       (ScheduleFrequency.HOURLY, 'Hourly'),
-                                       (ScheduleFrequency.DAILY, 'Daily'),
-                                       (ScheduleFrequency.WEEKLY, 'Weekly'),
-                                       (ScheduleFrequency.MONTHLY, 'Monthly'),
-                                       (ScheduleFrequency.CUSTOM, 'Custom Interval')
+                                       (ScheduleFrequency.HOURLY.value, 'Hourly'),
+                                       (ScheduleFrequency.DAILY.value, 'Daily'),
+                                       (ScheduleFrequency.WEEKLY.value, 'Weekly'),
+                                       (ScheduleFrequency.MONTHLY.value, 'Monthly'),
+                                       (ScheduleFrequency.CUSTOM.value, 'Custom Interval')
                                    ],
-                                   default=ScheduleFrequency.DAILY)
+                                   default=ScheduleFrequency.DAILY.value)
     
     custom_interval_minutes = IntegerField('Custom Interval (minutes)', 
                                          validators=[Optional(), NumberRange(min=5, max=44640)],  # 5 minutes to 31 days
                                          default=60,
                                          description='Enter custom interval in minutes (minimum 5 minutes)')
     
-    start_date = DateTimeField('Start Date', 
-                             format='%Y-%m-%d %H:%M',
+    start_date = DateTimeField('Start Date (UTC)', 
+                             format=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],
                              validators=[DataRequired()],
                              default=datetime.utcnow)
     
-    end_date = DateTimeField('End Date (Optional)', 
-                           format='%Y-%m-%d %H:%M',
+    end_date = DateTimeField('End Date (UTC, Optional)', 
+                           format=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],
                            validators=[Optional()],
                            description='Leave blank for no end date')
     
     is_active = BooleanField('Active', default=True,
                            description='Uncheck to disable this scheduled scan temporarily')
     
+    # Set by the edit route so existing stored secrets satisfy validation
+    is_edit = False
+
+    def validate_username(self, field):
+        """Require a username unless a saved credential set is used"""
+        if not self.credential_set_id.data and not field.data:
+            raise ValidationError('Username is required when no credential set is selected')
+
+    def validate_password(self, field):
+        """Require a password for new password-auth schedules without a credential set"""
+        if (not self.is_edit and not self.credential_set_id.data
+                and self.auth_type.data == 'password' and not field.data):
+            raise ValidationError('Password is required when using password authentication')
+
+    def validate_private_key(self, field):
+        """Require a key for new key-auth schedules without a credential set"""
+        if (not self.is_edit and not self.credential_set_id.data
+                and self.auth_type.data == 'key' and not field.data):
+            raise ValidationError('Private key is required when using key authentication')
+
     def validate_end_date(self, field):
         """Validate that end_date is after start_date if provided"""
         if field.data and self.start_date.data:
@@ -161,7 +191,7 @@ class ScheduledScanForm(FlaskForm):
                 
     def validate_custom_interval_minutes(self, field):
         """Validate that custom interval is provided when frequency is 'custom'"""
-        if self.schedule_frequency.data == ScheduleFrequency.CUSTOM and not field.data:
+        if self.schedule_frequency.data == ScheduleFrequency.CUSTOM.value and not field.data:
             raise ValidationError('Custom interval is required when frequency is set to Custom')
             
 class CredentialSetForm(FlaskForm):

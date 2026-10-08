@@ -37,15 +37,15 @@
                             <span class="badge bg-secondary">User</span>
                         {% endif %}
                     </td>
-                    <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>{% if user.created_at %}<span data-utc="{{ user.created_at.isoformat() }}">{{ user.created_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>{% endif %}</td>
                     <td>
                         <button class="btn btn-sm btn-outline-warning" data-bs-toggle="modal"
                                 data-bs-target="#resetPasswordModal{{ user.id }}">
                             <i class="fas fa-key"></i> Reset Password
                         </button>
                         {% if user.id != current_user.id %}
-                        <form method="POST" action="{{ url_for('delete_user', user_id=user.id) }}" class="d-inline"
-                              onsubmit="return confirm('Delete user {{ user.username }}?')">
+                        <form method="POST" action="{{ url_for('delete_user', user_id=user.id) }}" class="d-inline delete-user-form"
+                              data-username="{{ user.username }}">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-sm btn-outline-danger">
                                 <i class="fas fa-trash"></i> Delete
@@ -69,7 +69,8 @@
                                     <div class="mb-3">
                                         <label for="new_password_{{ user.id }}" class="form-label">New Password</label>
                                         <input type="password" class="form-control" id="new_password_{{ user.id }}"
-                                               name="new_password" required minlength="4">
+                                               name="new_password" required minlength="8">
+                                        <div class="form-text">At least 8 characters.</div>
                                     </div>
                                 </div>
                                 <div class="modal-footer">
@@ -103,7 +104,8 @@
                     </div>
                     <div class="mb-3">
                         <label for="password" class="form-label">Password</label>
-                        <input type="password" class="form-control" id="password" name="password" required minlength="4">
+                        <input type="password" class="form-control" id="password" name="password" required minlength="8">
+                        <div class="form-text">At least 8 characters.</div>
                     </div>
                     <div class="form-check mb-3">
                         <input class="form-check-input" type="checkbox" id="is_admin" name="is_admin">
@@ -118,4 +120,21 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Confirm user deletion; the username is read from a data attribute
+    // (never interpolated into inline JavaScript).
+    document.querySelectorAll('.delete-user-form').forEach(function(form) {
+        form.addEventListener('submit', function(e) {
+            const username = form.getAttribute('data-username') || 'this user';
+            if (!window.confirm('Delete user ' + username + '?')) {
+                e.preventDefault();
+            }
+        });
+    });
+});
+</script>
 {% endblock %}

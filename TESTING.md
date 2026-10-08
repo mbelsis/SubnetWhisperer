@@ -19,17 +19,25 @@ The tests use:
 
 The tests do not touch the main application database in `instance/subnet_whisperer.db`.
 
+Before importing the app, the tests set their own environment: a temporary `DATABASE_URL`, a test `SESSION_SECRET` and `ENCRYPTION_KEY`, and `START_SCHEDULER=false` so the background scheduler doesn't start during the run. If you write new tests or import the app from a script, set `START_SCHEDULER=false` yourself:
+
+```bash
+export START_SCHEDULER=false        # macOS / Linux
+set START_SCHEDULER=false           # Windows cmd.exe
+$env:START_SCHEDULER = "false"      # Windows PowerShell
+```
+
 ## Test Files
 
-- [tests/test_app.py](C:/Users/mbelsis/Documents/GitHub/SubnetWhisperer/tests/test_app.py)
-- [tests/README.md](C:/Users/mbelsis/Documents/GitHub/SubnetWhisperer/tests/README.md)
+- [tests/test_app.py](tests/test_app.py)
+- [tests/README.md](tests/README.md)
 
 ## How To Run
 
 From the repository root, run:
 
 ```bash
-python -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v
 ```
 
 ## Docker Integration Tests
@@ -39,18 +47,34 @@ There is also a separate integration test layer that uses two real Linux SSH con
 - `ssh-password`: password-authenticated SSH target
 - `ssh-key`: SSH target that accepts the bundled test key
 
-These tests exercise actual SSH connectivity and command execution through the real scan code in [ssh_utils.py](C:/Users/mbelsis/Documents/GitHub/SubnetWhisperer/ssh_utils.py).
+These tests exercise actual SSH connectivity and command execution through the real scan code in [ssh_utils.py](ssh_utils.py).
 
 Run them with:
 
 ```bash
-python tests/run_docker_integration.py
+python3 tests/run_docker_integration.py
 ```
 
 Or directly:
 
+macOS / Linux:
+
 ```bash
+export RUN_DOCKER_TESTS=1
+python3 -m unittest tests.test_docker_integration -v
+```
+
+Windows (cmd.exe):
+
+```bat
 set RUN_DOCKER_TESTS=1
+python -m unittest tests.test_docker_integration -v
+```
+
+Windows (PowerShell):
+
+```powershell
+$env:RUN_DOCKER_TESTS = "1"
 python -m unittest tests.test_docker_integration -v
 ```
 
@@ -65,8 +89,10 @@ The integration harness will:
 If your environment is missing dependencies, install the runtime packages first:
 
 ```bash
-python -m pip install flask flask-login flask-sqlalchemy flask-wtf wtforms email-validator sqlalchemy paramiko cryptography pandas matplotlib bcrypt psycopg2-binary gunicorn
+./setup.sh
 ```
+
+or install the dependencies listed in `pyproject.toml` (pinned in `uv.lock`) into your environment, for example with `uv export --frozen --no-dev --no-emit-project --no-hashes -o requirements.txt && python3 -m pip install -r requirements.txt`. Python 3.11+ is required.
 
 ## Expected Output
 

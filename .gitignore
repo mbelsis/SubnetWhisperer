@@ -1,8 +1,14 @@
 __pycache__/
 *.py[cod]
 
-instance/.secret_key
-instance/debug_key.db
+# Runtime data: database, encryption key, session secret, known_hosts, initial admin password.
+# Never commit these - the encryption key decrypts every stored credential.
+instance/
+
+# Local configuration and logs
+.env
+logs/
+.venv/
 
 migrations/__pycache__/
 tests/__pycache__/

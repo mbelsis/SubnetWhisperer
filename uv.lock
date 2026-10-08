@@ -849,7 +849,7 @@ wheels = [
 ]
 
 [[package]]
-name = "repl-nix-workspace"
+name = "subnet-whisperer"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

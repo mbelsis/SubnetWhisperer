@@ -88,8 +88,9 @@
               </div>
               
               <div class="col-md-4 mb-3">
-                <label for="{{ form.start_date.id }}" class="form-label">{{ form.start_date.label }}</label>
-                {{ form.start_date(class="form-control", type="datetime-local") }}
+                <label for="{{ form.start_date.id }}" class="form-label">{{ form.start_date.label.text }} (UTC)</label>
+                {{ form.start_date(class="form-control", type="datetime-local", value=(form.start_date.data.strftime('%Y-%m-%dT%H:%M') if form.start_date.data else '')) }}
+                <small class="text-muted">Interpreted as UTC. Current UTC time: <span id="currentUtcTime"></span></small>
                 {% if form.start_date.errors %}
                   <div class="invalid-feedback d-block">
                     {% for error in form.start_date.errors %}
@@ -100,9 +101,9 @@
               </div>
               
               <div class="col-md-4 mb-3">
-                <label for="{{ form.end_date.id }}" class="form-label">{{ form.end_date.label }}</label>
-                {{ form.end_date(class="form-control", type="datetime-local") }}
-                <small class="text-muted">{{ form.end_date.description }}</small>
+                <label for="{{ form.end_date.id }}" class="form-label">{{ form.end_date.label.text }} (UTC)</label>
+                {{ form.end_date(class="form-control", type="datetime-local", value=(form.end_date.data.strftime('%Y-%m-%dT%H:%M') if form.end_date.data else '')) }}
+                <small class="text-muted">{{ form.end_date.description }} Interpreted as UTC.</small>
                 {% if form.end_date.errors %}
                   <div class="invalid-feedback d-block">
                     {% for error in form.end_date.errors %}
@@ -132,6 +133,36 @@
                 {% endif %}
               </div>
               
+              {% if form.credential_set_id is defined %}
+              <div class="col-md-8 mb-3">
+                <label for="{{ form.credential_set_id.id }}" class="form-label">{{ form.credential_set_id.label.text if form.credential_set_id.label else 'Credential Set' }}</label>
+                {{ form.credential_set_id(class="form-control") }}
+                <small class="text-muted">Choose a saved credential set, or "None" to use the username and password/key below.</small>
+                {% if form.credential_set_id.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.credential_set_id.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+              {% endif %}
+              
+              {% if form.port is defined %}
+              <div class="col-md-4 mb-3">
+                <label for="{{ form.port.id }}" class="form-label">{{ form.port.label.text if form.port.label else 'SSH Port' }}</label>
+                {{ form.port(class="form-control", type="number", min=1, max=65535) }}
+                <small class="text-muted">Default 22</small>
+                {% if form.port.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.port.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+              {% endif %}
+              
               <div class="col-md-6 mb-3">
                 <label for="{{ form.username.id }}" class="form-label">{{ form.username.label }}</label>
                 {{ form.username(class="form-control") }}
@@ -144,7 +175,7 @@
                 {% endif %}
               </div>
               
-              <div class="col-md-6 mb-3">
+              <div class="col-md-6 mb-3" id="authTypeContainer">
                 <label for="{{ form.auth_type.id }}" class="form-label">{{ form.auth_type.label }}</label>
                 {{ form.auth_type(class="form-control") }}
                 {% if form.auth_type.errors %}
@@ -166,7 +197,7 @@
                     {% endfor %}
                   </div>
                 {% endif %}
-                {% if schedule %}
+                {% if schedule and schedule.password_encrypted %}
                 <div class="form-text">
                   <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="keepExistingPassword" name="keep_existing_password" checked>
@@ -190,7 +221,7 @@
                     {% endfor %}
                   </div>
                 {% endif %}
-                {% if schedule and schedule.has_private_key %}
+                {% if schedule and schedule.private_key_encrypted %}
                 <div class="form-text">
                   <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="keepExistingKey" name="keep_existing_key" checked>
@@ -202,6 +233,32 @@
                 </div>
                 {% endif %}
               </div>
+              
+              {% if form.sudo_password is defined %}
+              <div class="col-md-12 mb-3" id="sudoPasswordContainer">
+                <label for="{{ form.sudo_password.id }}" class="form-label">{{ form.sudo_password.label.text if form.sudo_password.label else 'Sudo Password' }} (Optional)</label>
+                {{ form.sudo_password(class="form-control", autocomplete="new-password") }}
+                <small class="text-muted">Used for commands that require sudo. Not needed when the selected credential set has its own sudo password.</small>
+                {% if form.sudo_password.errors %}
+                  <div class="invalid-feedback d-block">
+                    {% for error in form.sudo_password.errors %}
+                      {{ error }}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+                {% if schedule and schedule.sudo_password_encrypted %}
+                <div class="form-text">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="keepExistingSudoPassword" name="keep_existing_sudo_password" checked>
+                    <label class="form-check-label" for="keepExistingSudoPassword">
+                      Keep existing sudo password
+                    </label>
+                  </div>
+                  <small>Uncheck to change or clear the sudo password</small>
+                </div>
+                {% endif %}
+              </div>
+              {% endif %}
             </div>
             
             <div class="row mb-4">
@@ -293,8 +350,22 @@ document.addEventListener('DOMContentLoaded', function() {
   const serverInfoCheckbox = document.getElementById('{{ form.collect_server_info.id }}');
   const detailedInfoCheckbox = document.getElementById('{{ form.collect_detailed_info.id }}');
   
-  // Toggle password/key fields based on auth type
+  const credentialSetSelect = document.getElementById('credential_set_id');
+  const authTypeContainer = document.getElementById('authTypeContainer');
+
+  function usingCredentialSet() {
+    return !!(credentialSetSelect && credentialSetSelect.value && credentialSetSelect.value !== '0');
+  }
+
+  // Toggle password/key fields based on auth type (hidden when a credential set is used)
   function toggleAuthFields() {
+    if (usingCredentialSet()) {
+      passwordContainer.style.display = 'none';
+      privateKeyContainer.style.display = 'none';
+      if (authTypeContainer) authTypeContainer.style.display = 'none';
+      return;
+    }
+    if (authTypeContainer) authTypeContainer.style.display = '';
     if (authTypeSelect.value === 'password') {
       passwordContainer.style.display = 'block';
       privateKeyContainer.style.display = 'none';
@@ -352,10 +423,38 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initial state
     keyField.disabled = keepKeyCheckbox.checked;
   }
+  
+  const keepSudoCheckbox = document.getElementById('keepExistingSudoPassword');
+  const sudoField = document.getElementById('sudo_password');
+  
+  if (keepSudoCheckbox && sudoField) {
+    keepSudoCheckbox.addEventListener('change', function() {
+      sudoField.disabled = this.checked;
+      if (this.checked) {
+        sudoField.value = '';
+      }
+    });
+    
+    // Initial state
+    sudoField.disabled = keepSudoCheckbox.checked;
+  }
   {% endif %}
+  
+  // Show the current UTC time next to the start date (inputs are UTC)
+  const currentUtcTime = document.getElementById('currentUtcTime');
+  function updateUtcClock() {
+    if (currentUtcTime) {
+      currentUtcTime.textContent = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    }
+  }
+  updateUtcClock();
+  setInterval(updateUtcClock, 30000);
   
   // Add event listeners
   authTypeSelect.addEventListener('change', toggleAuthFields);
+  if (credentialSetSelect) {
+    credentialSetSelect.addEventListener('change', toggleAuthFields);
+  }
   frequencySelect.addEventListener('change', toggleCustomInterval);
   serverInfoCheckbox.addEventListener('change', toggleDetailedInfo);
   

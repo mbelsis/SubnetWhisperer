@@ -118,6 +118,24 @@
               <h6 class="text-muted mb-1">Authentication Type</h6>
               <p>{{ schedule.auth_type|capitalize }}</p>
             </div>
+            {% if schedule.port is defined and schedule.port %}
+            <div class="col-md-6 mb-3">
+              <h6 class="text-muted mb-1">SSH Port</h6>
+              <p>{{ schedule.port }}</p>
+            </div>
+            {% endif %}
+            {% if schedule.credential_set is defined and schedule.credential_set %}
+            <div class="col-md-6 mb-3">
+              <h6 class="text-muted mb-1">Credential Set</h6>
+              <p>{{ schedule.credential_set.username }} ({{ schedule.credential_set.auth_type|title }}){% if schedule.credential_set.description %} - {{ schedule.credential_set.description }}{% endif %}</p>
+            </div>
+            {% endif %}
+            {% if schedule.sudo_password_encrypted is defined %}
+            <div class="col-md-6 mb-3">
+              <h6 class="text-muted mb-1">Sudo Password</h6>
+              <p>{% if schedule.sudo_password_encrypted %}<span class="badge bg-success">Set</span>{% else %}<span class="badge bg-secondary">Not set</span>{% endif %}</p>
+            </div>
+            {% endif %}
             <div class="col-md-6 mb-3">
               <h6 class="text-muted mb-1">Command Template</h6>
               <p>
@@ -199,7 +217,7 @@
           {% if schedule.scan_sessions %}
             <div class="list-group">
               {% for session in schedule.scan_sessions[:5] %}
-                <a href="{{ url_for('scan_results', scan_id=session.id) }}" class="list-group-item list-group-item-action">
+                <a href="{{ url_for('results', scan_id=session.id) }}" class="list-group-item list-group-item-action">
                   <div class="d-flex w-100 justify-content-between">
                     <h6 class="mb-1">Scan #{{ session.id }}</h6>
                     <small class="text-muted formatted-date">{{ session.started_at }}</small>
@@ -262,8 +280,10 @@ document.addEventListener('DOMContentLoaded', function() {
   // Format dates
   document.querySelectorAll('.formatted-date').forEach(function(el) {
     const dateStr = el.textContent.trim();
-    if (dateStr) {
-      el.textContent = new Date(dateStr).toLocaleString();
+    const date = parseServerDate(dateStr);
+    if (date) {
+      el.textContent = date.toLocaleString();
+      el.setAttribute('title', date.toISOString());
     }
   });
   
@@ -274,19 +294,16 @@ document.addEventListener('DOMContentLoaded', function() {
       const id = this.getAttribute('data-id');
       const action = this.getAttribute('data-action');
       
-      fetch(`/schedules/${id}/${action}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        }
+      apiFetch(`/schedules/${encodeURIComponent(id)}/${encodeURIComponent(action)}`, {
+        method: 'POST'
       })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success) {
-          showToast(data.message, 'Success', 'success');
+      .then(({ ok, data }) => {
+        if (ok && data.success) {
+          showToast(data.message || 'Schedule updated', 'Success', 'success');
           setTimeout(() => window.location.reload(), 1000);
         } else {
-          showToast(data.message, 'Error', 'danger');
+          // e.g. activating a schedule whose end date has passed
+          showToast(data.message || data.error || 'The schedule could not be updated', 'Error', 'danger');
         }
       })
       .catch(error => {
@@ -298,27 +315,23 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Delete schedule
   document.getElementById('confirmDelete').addEventListener('click', function() {
-    fetch(`/schedules/{{ schedule.id }}/delete`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      }
+    apiFetch(`/schedules/{{ schedule.id }}/delete`, {
+      method: 'POST'
     })
-    .then(response => response.json())
-    .then(data => {
+    .then(({ ok, data }) => {
       const deleteModal = bootstrap.Modal.getInstance(document.getElementById('deleteScheduleModal'));
-      deleteModal.hide();
+      if (deleteModal) deleteModal.hide();
       
-      if (data.success) {
-        showToast(data.message, 'Success', 'success');
+      if (ok && data.success) {
+        showToast(data.message || 'Schedule deleted', 'Success', 'success');
         setTimeout(() => window.location.href = "{{ url_for('schedules') }}", 1000);
       } else {
-        showToast(data.message, 'Error', 'danger');
+        showToast(data.message || data.error || 'Failed to delete schedule', 'Error', 'danger');
       }
     })
     .catch(error => {
       const deleteModal = bootstrap.Modal.getInstance(document.getElementById('deleteScheduleModal'));
-      deleteModal.hide();
+      if (deleteModal) deleteModal.hide();
       
       showToast('An error occurred', 'Error', 'danger');
       console.error('Error:', error);
@@ -326,10 +339,5 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 
-// Show toast notification
-function showToast(message, title, type) {
-  // Use bootstrap toast or create a simple alert
-  alert(`${title}: ${message}`);
-}
 </script>
 {% endblock %}

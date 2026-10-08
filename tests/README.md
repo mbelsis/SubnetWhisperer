@@ -7,7 +7,7 @@ This directory contains two test layers:
 
 ## Fast Smoke Tests
 
-These tests live in [tests/test_app.py](C:/Users/mbelsis/Documents/GitHub/SubnetWhisperer/tests/test_app.py).
+These tests live in [tests/test_app.py](test_app.py).
 
 They verify basic app behavior such as:
 
@@ -19,7 +19,7 @@ They verify basic app behavior such as:
 Run them with:
 
 ```bash
-python -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v
 ```
 
 By default, the Docker integration tests are skipped during this command unless explicitly enabled.
@@ -28,9 +28,9 @@ By default, the Docker integration tests are skipped during this command unless 
 
 These tests live in:
 
-- [tests/test_docker_integration.py](C:/Users/mbelsis/Documents/GitHub/SubnetWhisperer/tests/test_docker_integration.py)
-- [tests/run_docker_integration.py](C:/Users/mbelsis/Documents/GitHub/SubnetWhisperer/tests/run_docker_integration.py)
-- [tests/docker-compose.integration.yml](C:/Users/mbelsis/Documents/GitHub/SubnetWhisperer/tests/docker-compose.integration.yml)
+- [tests/test_docker_integration.py](test_docker_integration.py)
+- [tests/run_docker_integration.py](run_docker_integration.py)
+- [tests/docker-compose.integration.yml](docker-compose.integration.yml)
 
 They test the real SSH execution path of the application, not mocks.
 
@@ -41,7 +41,7 @@ The integration suite starts two Linux SSH targets in Docker:
 - `ssh-password`: accepts username/password authentication
 - `ssh-key`: accepts SSH private-key authentication
 
-The application then connects to those containers using the real code in [ssh_utils.py](C:/Users/mbelsis/Documents/GitHub/SubnetWhisperer/ssh_utils.py).
+The application then connects to those containers using the real code in [ssh_utils.py](../ssh_utils.py).
 
 The suite verifies:
 
@@ -65,8 +65,8 @@ These are intentional smoke commands used only to prove the SSH execution path w
 
 The Docker test setup uses:
 
-- [tests/docker/ssh-password/Dockerfile](C:/Users/mbelsis/Documents/GitHub/SubnetWhisperer/tests/docker/ssh-password/Dockerfile)
-- [tests/docker/ssh-key/Dockerfile](C:/Users/mbelsis/Documents/GitHub/SubnetWhisperer/tests/docker/ssh-key/Dockerfile)
+- [tests/docker/ssh-password/Dockerfile](docker/ssh-password/Dockerfile)
+- [tests/docker/ssh-key/Dockerfile](docker/ssh-key/Dockerfile)
 
 The containers expose SSH to the host on:
 
@@ -75,10 +75,14 @@ The containers expose SSH to the host on:
 
 The key-auth test uses:
 
-- [tests/docker/keys/id_ed25519_valid](C:/Users/mbelsis/Documents/GitHub/SubnetWhisperer/tests/docker/keys/id_ed25519_valid)
-- [tests/docker/keys/id_ed25519_valid.pub](C:/Users/mbelsis/Documents/GitHub/SubnetWhisperer/tests/docker/keys/id_ed25519_valid.pub)
+- [tests/docker/keys/id_ed25519_valid](docker/keys/id_ed25519_valid)
+- [tests/docker/keys/id_ed25519_valid.pub](docker/keys/id_ed25519_valid.pub)
 
 The test suite creates an isolated SQLite database just for the run and removes it afterward. It does not use the normal application database for its assertions.
+
+The tests also set `SESSION_SECRET`, `ENCRYPTION_KEY` and `START_SCHEDULER=false` before importing the app, so the background scheduler never runs during tests.
+
+The app verifies SSH host keys (`SSH_HOST_KEY_POLICY`, default `tofu`). The test containers generate new host keys when they are rebuilt, so a key recorded in a known-hosts file by an earlier run will no longer match. The integration tests should use a throwaway `SSH_KNOWN_HOSTS_FILE` (or `SSH_HOST_KEY_POLICY=warn`); if you run manual scans against the containers from the app, remove the `[127.0.0.1]:2222` and `[127.0.0.1]:2223` lines from `instance/known_hosts` after rebuilding.
 
 ## Prerequisites
 
@@ -91,15 +95,17 @@ Before running the Docker integration tests, make sure:
 If Python dependencies are missing, install them with:
 
 ```bash
-python -m pip install flask flask-login flask-sqlalchemy flask-wtf wtforms email-validator sqlalchemy paramiko cryptography pandas matplotlib bcrypt psycopg2-binary gunicorn
+./setup.sh
 ```
+
+or install the dependencies listed in `pyproject.toml` (pinned in `uv.lock`) into your environment, for example with `uv export --frozen --no-dev --no-emit-project --no-hashes -o requirements.txt && python3 -m pip install -r requirements.txt`. Python 3.11+ is required.
 
 ## How To Run The Integration Tests
 
 Recommended command:
 
 ```bash
-python tests/run_docker_integration.py
+python3 tests/run_docker_integration.py
 ```
 
 That runner sets the required environment flag and launches:
@@ -110,8 +116,24 @@ python -m unittest tests.test_docker_integration -v
 
 You can also run it manually:
 
+macOS / Linux:
+
 ```bash
+export RUN_DOCKER_TESTS=1
+python3 -m unittest tests.test_docker_integration -v
+```
+
+Windows (cmd.exe):
+
+```bat
 set RUN_DOCKER_TESTS=1
+python -m unittest tests.test_docker_integration -v
+```
+
+Windows (PowerShell):
+
+```powershell
+$env:RUN_DOCKER_TESTS = "1"
 python -m unittest tests.test_docker_integration -v
 ```
 

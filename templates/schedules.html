@@ -14,7 +14,7 @@
   <div class="card mb-4">
     <div class="card-body">
       <div class="alert alert-info">
-        <i class="bi bi-info-circle"></i> Scheduled scans run automatically at the configured intervals. The scheduler service checks for pending scans every minute.
+        <i class="bi bi-info-circle"></i> Scheduled scans run automatically at the configured intervals. The scheduler service checks for pending scans every minute. Start and end times are entered in UTC and shown here in your local time.
       </div>
       
       {% if scheduled_scans %}
@@ -130,7 +130,7 @@
                 {% endif %}
               </td>
               <td>
-                <a href="{{ url_for('scan_results', scan_id=session.id) }}" class="btn btn-sm btn-outline-secondary">
+                <a href="{{ url_for('results', scan_id=session.id) }}" class="btn btn-sm btn-outline-secondary">
                   View Results
                 </a>
               </td>
@@ -179,7 +179,9 @@ document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('.next-run-time').forEach(function(el) {
     const timeStr = el.getAttribute('data-time');
     if (timeStr) {
-      const date = new Date(timeStr);
+      const date = parseServerDate(timeStr);
+      if (!date) return;
+      el.setAttribute('title', date.toLocaleString());
       const now = new Date();
       const diffMs = date - now;
       
@@ -219,19 +221,16 @@ document.addEventListener('DOMContentLoaded', function() {
       const id = this.getAttribute('data-id');
       const action = this.getAttribute('data-action');
       
-      fetch(`/schedules/${id}/${action}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        }
+      apiFetch(`/schedules/${encodeURIComponent(id)}/${encodeURIComponent(action)}`, {
+        method: 'POST'
       })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success) {
-          showToast(data.message, 'Success', 'success');
+      .then(({ ok, data }) => {
+        if (ok && data.success) {
+          showToast(data.message || 'Schedule updated', 'Success', 'success');
           setTimeout(() => window.location.reload(), 1000);
         } else {
-          showToast(data.message, 'Error', 'danger');
+          // e.g. activating a schedule whose end date has passed
+          showToast(data.message || data.error || 'The schedule could not be updated', 'Error', 'danger');
         }
       })
       .catch(error => {
@@ -255,20 +254,16 @@ document.addEventListener('DOMContentLoaded', function() {
   
   document.getElementById('confirmDelete').addEventListener('click', function() {
     if (scheduleToDelete) {
-      fetch(`/schedules/${scheduleToDelete}/delete`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        }
+      apiFetch(`/schedules/${encodeURIComponent(scheduleToDelete)}/delete`, {
+        method: 'POST'
       })
-      .then(response => response.json())
-      .then(data => {
+      .then(({ ok, data }) => {
         deleteModal.hide();
-        if (data.success) {
-          showToast(data.message, 'Success', 'success');
+        if (ok && data.success) {
+          showToast(data.message || 'Schedule deleted', 'Success', 'success');
           setTimeout(() => window.location.reload(), 1000);
         } else {
-          showToast(data.message, 'Error', 'danger');
+          showToast(data.message || data.error || 'Failed to delete schedule', 'Error', 'danger');
         }
       })
       .catch(error => {

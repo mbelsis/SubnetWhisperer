@@ -43,7 +43,11 @@
                             {% for session in scan_sessions %}
                             <tr data-scan-id="{{ session.id }}" {% if session.id == current_scan_id %}class="table-primary"{% endif %}>
                                 <td>{{ session.id }}</td>
-                                <td>{{ session.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                                <td data-order="{{ session.started_at.strftime('%Y-%m-%d %H:%M:%S') if session.started_at else '' }}">
+                                    {% if session.started_at %}
+                                    <span data-utc="{{ session.started_at.isoformat() }}">{{ session.started_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</span>
+                                    {% endif %}
+                                </td>
                                 <td>{{ session.username }}</td>
                                 <td>
                                     {% if session.auth_type == 'password' %}
@@ -68,9 +72,11 @@
                                     <button type="button" class="btn btn-sm btn-primary view-results" data-scan-id="{{ session.id }}">
                                         <i class="fas fa-eye"></i>
                                     </button>
-                                    <button type="button" class="btn btn-sm btn-danger delete-scan" data-scan-id="{{ session.id }}">
+                                    {% if current_user.is_admin %}
+                                    <button type="button" class="btn btn-sm btn-danger delete-scan" data-scan-id="{{ session.id }}" title="Delete scan">
                                         <i class="fas fa-trash"></i>
                                     </button>
+                                    {% endif %}
                                 </td>
                             </tr>
                             {% endfor %}
@@ -81,6 +87,8 @@
         </div>
     </div>
 </div>
+
+<div id="resultLoadStatus" style="display: none;"></div>
 
 <div class="row" id="resultDetails" style="display: none;">
     <div class="col-md-12">
@@ -257,7 +265,7 @@
                         </div>
                     </div>
                     <div class="tab-pane fade" id="error" role="tabpanel" aria-labelledby="error-tab">
-                        <div class="alert alert-danger" id="errorContainer">
+                        <div class="alert alert-danger" id="errorContainer" style="white-space: pre-wrap;">
                             <!-- Error message will be populated here -->
                         </div>
                     </div>

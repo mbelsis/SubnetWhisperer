@@ -1,74 +1,119 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Subnet Whisperer setup script
+# Installs dependencies, initialises the database and prepares a local .env file.
+# Safe to re-run: an existing .env is never overwritten, only missing keys are appended.
 
-# Subnet Whisperer Setup Script
-# This script installs dependencies and sets up the Subnet Whisperer application
+set -euo pipefail
+cd "$(dirname "$0")"
 
 echo "=== Subnet Whisperer Setup ==="
-echo "This script will install the required dependencies and set up the application."
 
-# Check Python version
-python_version=$(python3 --version 2>&1 | grep -Po '(?<=Python )\d+\.\d+')
-major=$(echo $python_version | cut -d. -f1)
-minor=$(echo $python_version | cut -d. -f2)
-
-if [ "$major" -lt 3 ] || ([ "$major" -eq 3 ] && [ "$minor" -lt 7 ]); then
-    echo "Error: Python 3.7 or higher is required. Found Python $python_version"
+# ---------------------------------------------------------------------------
+# Python version check (3.11+), portable across Linux and macOS
+# ---------------------------------------------------------------------------
+PYTHON="${PYTHON:-python3}"
+if ! command -v "$PYTHON" >/dev/null 2>&1; then
+    echo "Error: $PYTHON not found. Install Python 3.11 or newer." >&2
     exit 1
 fi
-echo "Python $python_version detected."
 
-# Install dependencies
+if ! "$PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'; then
+    echo "Error: Python 3.11 or higher is required. Found: $("$PYTHON" --version 2>&1)" >&2
+    exit 1
+fi
+echo "$("$PYTHON" --version 2>&1) detected."
+
+# ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
 echo "Installing dependencies..."
-# Note: In Replit, dependencies are managed through the packager tool
-# This is for when setting up outside of Replit
-if [ -f "requirements.txt" ]; then
-    pip install -r requirements.txt
+if command -v uv >/dev/null 2>&1; then
+    # Install the exact versions pinned in uv.lock into the active environment
+    uv export --frozen --no-dev --no-emit-project --no-hashes -o "${TMPDIR:-/tmp}/subnet-whisperer-requirements.txt"
+    "$PYTHON" -m pip install -r "${TMPDIR:-/tmp}/subnet-whisperer-requirements.txt"
 else
-    echo "Installing required packages..."
-    pip install flask flask-login flask-sqlalchemy flask-wtf gunicorn matplotlib pandas paramiko psycopg2-binary sqlalchemy wtforms email-validator cryptography bcrypt
+    # Fall back to the version ranges declared in pyproject.toml
+    deps=$("$PYTHON" - <<'PY'
+import tomllib
+with open("pyproject.toml", "rb") as f:
+    print("\n".join(tomllib.load(f)["project"]["dependencies"]))
+PY
+)
+    # shellcheck disable=SC2086
+    "$PYTHON" -m pip install $deps
 fi
 
-# Check if database exists, if not initialize it
-if [ ! -d "instance" ] || [ ! -f "instance/subnet_whisperer.db" ]; then
-    echo "Initializing database..."
-    python run_migrations.py
-    # Run the application to create tables
-    echo "Creating database tables..."
-    python -c "from app import app, db; app.app_context().push(); db.create_all()"
-else
-    echo "Running database migrations..."
-    python run_migrations.py
+# ---------------------------------------------------------------------------
+# Directories
+# ---------------------------------------------------------------------------
+mkdir -p instance logs
+
+# ---------------------------------------------------------------------------
+# .env: create from .env.example if missing, then append any missing keys.
+# Existing values are never changed.
+# ---------------------------------------------------------------------------
+if [ ! -f .env ]; then
+    if [ -f .env.example ]; then
+        cp .env.example .env
+        echo "Created .env from .env.example."
+    else
+        touch .env
+    fi
+    chmod 600 .env
 fi
 
-# Create logs directory if it doesn't exist
-if [ ! -d "logs" ]; then
-    echo "Creating logs directory..."
-    mkdir -p logs
+env_has_key() {
+    grep -Eq "^[[:space:]]*$1=" .env
+}
+
+append_env() {
+    local key="$1" value="$2"
+    if ! env_has_key "$key"; then
+        echo "${key}=${value}" >> .env
+        echo "Added ${key} to .env"
+    fi
+}
+
+if [ -z "${SESSION_SECRET:-}" ] && ! env_has_key SESSION_SECRET; then
+    append_env SESSION_SECRET "$("$PYTHON" -c 'import secrets; print(secrets.token_hex(32))')"
+fi
+# ENCRYPTION_KEY is deliberately not generated here: if it is unset, the app
+# creates instance/.encryption_key on first start and keeps using it.
+
+# Export the .env values so the migration step below uses the same settings as the app
+set -a
+# shellcheck disable=SC1091
+. ./.env
+set +a
+
+# ---------------------------------------------------------------------------
+# Database
+# ---------------------------------------------------------------------------
+echo "Creating / updating the database schema..."
+if ! "$PYTHON" run_migrations.py; then
+    echo "Error: database migrations failed. See the output above." >&2
+    exit 1
 fi
 
-# Set environment variables for session secret
-if [ -z "$SESSION_SECRET" ]; then
-    echo "Generating session secret..."
-    export SESSION_SECRET=$(python -c "import secrets; print(secrets.token_hex(32))")
-    echo "# Add this to your .env file for persistent configuration" > .env
-    echo "SESSION_SECRET=$SESSION_SECRET" >> .env
-fi
 
+echo ""
 echo "=== Setup Complete ==="
 echo ""
-echo "A default admin account has been created:"
+echo "Admin account:"
 echo "  Username: admin"
-echo "  Password: admin"
+echo "  Password: the value of ADMIN_PASSWORD if it was set when the database was"
+echo "            first created; otherwise a random password that was logged (see the"
+echo "            output above) and written to instance/initial_admin_password."
+echo "            You must change it at first login."
 echo ""
-echo "*** IMPORTANT: Change the default password after your first login! ***"
+echo "Settings are in .env. The app does not read .env by itself; export it first:"
+echo "  set -a; . ./.env; set +a"
 echo ""
-echo "To start the application:"
-echo "1. Activate the virtual environment (if not already activated):"
-echo "   source venv/bin/activate"
-echo "2. Run the application:"
-echo "   python main.py"
+echo "Development server (binds to 127.0.0.1:5000 by default):"
+echo "  $PYTHON main.py"
 echo ""
-echo "The application will be available at http://localhost:5000"
+echo "Production (gunicorn):"
+echo "  gunicorn --bind 0.0.0.0:5000 --workers 1 --threads 4 main:app"
 echo ""
-echo "To run with gunicorn (recommended for production):"
-echo "gunicorn --bind 0.0.0.0:5000 main:app"
+echo "Keep and back up instance/.encryption_key (or ENCRYPTION_KEY): without it,"
+echo "stored credentials cannot be decrypted."
