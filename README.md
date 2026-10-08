@@ -265,7 +265,7 @@ A single scan can include at most `MAX_SCAN_IPS` addresses (default 65536), and 
 ### Server Information Collection
 
 - **Basic**: hostname, OS, CPU, memory, disk
-- **Detailed**: also network interfaces, IP configuration, DNS settings, running services, network connections, default gateways and virtualization
+- **Detailed**: also network interfaces, IP configuration, DNS settings, running services, network connections, default gateways, virtualization, login accounts, load average, installed packages (first 100; dpkg, rpm or apk) and firewall rules. Root-only details (firewall rules, `lshw` hardware data) are read through sudo when the account has sudo rights, with or without a sudo password; otherwise those sections stay empty.
 
 ### Command Templates
 

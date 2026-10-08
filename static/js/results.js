@@ -840,7 +840,33 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                     `;
                 }
-                
+
+                // Remaining detailed sections rendered as plain text blocks
+                const textSections = [
+                    ['load_average', 'fa-tachometer-alt', 'Load Average'],
+                    ['user_accounts', 'fa-users', 'User Accounts (login shells)'],
+                    ['firewall_rules', 'fa-shield-alt', 'Firewall Rules'],
+                    ['installed_packages', 'fa-box', 'Installed Packages (first 100)'],
+                ];
+                textSections.forEach(([key, icon, title]) => {
+                    const value = serverInfo[key];
+                    if (value === undefined || value === null) return;
+                    const lines = Array.isArray(value) ? value.filter(line => String(line).trim() !== '') : [String(value)];
+                    const body = lines.length
+                        ? `<pre class="bg-dark text-light p-2 rounded small" style="max-height: 300px; overflow: auto;">${escapeHtml(lines.join('\n'))}</pre>`
+                        : '<p class="text-muted mb-0">Not available on this host (the tool may be missing or need root access).</p>';
+                    serverInfoHtml += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="fas ${icon} me-2"></i> ${escapeHtml(title)}</h6>
+                                </div>
+                                <div class="card-body">${body}</div>
+                            </div>
+                        </div>
+                    `;
+                });
+
             } catch (e) {
                 serverInfoHtml = `
                     <div class="col-12">

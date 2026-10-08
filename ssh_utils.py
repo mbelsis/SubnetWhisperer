@@ -3,6 +3,7 @@ import os
 import json
 import time
 import select
+import shlex
 import socket
 import logging
 import threading
@@ -293,12 +294,15 @@ def check_sudo(client, sudo_password=None):
     return res['exit_status'] == 0, True
 
 
-def collect_server_info(ssh_client, detailed=False):
+def collect_server_info(ssh_client, detailed=False, has_sudo=False, sudo_password=None):
     """Collect server information using SSH client
 
     Args:
         ssh_client: Paramiko SSH client
         detailed: Whether to collect detailed information (more commands, deeper analysis)
+        has_sudo: Whether the login user may use sudo; root-only commands
+            (firewall rules, hardware details) then run through sudo
+        sudo_password: Password for sudo, or None when sudo needs no password
 
     Returns:
         Dictionary containing server information
@@ -308,9 +312,21 @@ def collect_server_info(ssh_client, detailed=False):
         return mask_command_output(
             run_command(ssh_client, cmd, timeout=SSH_INFO_COMMAND_TIMEOUT)['stdout']).strip()
 
+    def run_privileged(cmd):
+        """Run a root-only command through sudo when available, else as the login user."""
+        if not has_sudo:
+            return run(cmd)
+        wrapped = shlex.quote(cmd)
+        if sudo_password:
+            res = run_command(ssh_client, f"sudo -S -p '' sh -c {wrapped}",
+                              timeout=SSH_INFO_COMMAND_TIMEOUT, stdin_data=sudo_password + "\n")
+        else:
+            res = run_command(ssh_client, f"sudo -n sh -c {wrapped}", timeout=SSH_INFO_COMMAND_TIMEOUT)
+        return mask_command_output(res['stdout']).strip()
+
     server_info = {}
     try:
-        server_info['hostname'] = run("hostname -f")
+        server_info['hostname'] = run("hostname -f 2>/dev/null || hostname")
 
         os_info = {}
         for line in run("cat /etc/os-release").split('\n'):
@@ -345,21 +361,27 @@ def collect_server_info(ssh_client, detailed=False):
         except json.JSONDecodeError:
             server_info['network'] = run("ip addr").split('\n')
 
-        server_info['uptime'] = run("uptime -p")
+        server_info['uptime'] = run("uptime -p 2>/dev/null || uptime")
 
         if detailed:
             server_info['dns_config'] = run("cat /etc/resolv.conf").split('\n')
             server_info['running_services'] = run(
-                "systemctl list-units --type=service --state=running").split('\n')
-            server_info['installed_packages'] = run("dpkg-query -l | head -100").split('\n')
+                "systemctl list-units --type=service --state=running --no-pager --no-legend 2>/dev/null"
+                " || rc-status --servicelist 2>/dev/null || service --status-all 2>/dev/null").split('\n')
+            server_info['installed_packages'] = run(
+                "(dpkg-query -W -f='${Package} ${Version}\\n' 2>/dev/null || rpm -qa 2>/dev/null"
+                " || apk info -v 2>/dev/null) | head -100").split('\n')
             server_info['network_connections'] = run("ss -tuln").split('\n')
-            server_info['ethernet_cards'] = run("lshw -class network -short").split('\n')
+            server_info['ethernet_cards'] = run_privileged(
+                "lshw -class network -short 2>/dev/null || ip -br link").split('\n')
             server_info['user_accounts'] = run(
                 "cat /etc/passwd | grep -v nologin | grep -v false").split('\n')
             server_info['load_average'] = run("cat /proc/loadavg")
             server_info['default_gateway'] = run("ip route | grep default")
-            server_info['firewall_rules'] = run("iptables -L -n").split('\n')
-            virtualization = run("hostnamectl | grep Virtualization")
+            server_info['firewall_rules'] = run_privileged(
+                "iptables -L -n -v 2>/dev/null || nft list ruleset 2>/dev/null").split('\n')
+            virtualization = run(
+                "hostnamectl 2>/dev/null | grep -i virtualization || systemd-detect-virt 2>/dev/null")
             server_info['virtualization'] = virtualization if virtualization else "Not detected"
 
         return server_info
@@ -505,12 +527,14 @@ def _scan_host(ip, port, attempts, sudo_password, commands, collect_info, collec
         if sudo_pw:
             secrets.append(sudo_pw)
 
-        if commands:
-            needs_password = False
+        needs_password = False
+        if commands or collect_info:
             try:
                 fields['sudo_status'], needs_password = check_sudo(client, sudo_pw)
             except Exception as e:
                 logger.warning("Sudo check failed for %s: %s", ip, scrub(str(e)))
+
+        if commands:
 
             _, validation = validate_commands_list(commands)
             command_output = []
@@ -547,7 +571,9 @@ def _scan_host(ip, port, attempts, sudo_password, commands, collect_info, collec
             fields['command_output'] = json.dumps(command_output)
 
         if collect_info:
-            info = collect_server_info(client, detailed=collect_detailed_info)
+            info = collect_server_info(client, detailed=collect_detailed_info,
+                                       has_sudo=bool(fields['sudo_status']),
+                                       sudo_password=sudo_pw if needs_password else None)
 
             def clean(data):
                 if isinstance(data, dict):
