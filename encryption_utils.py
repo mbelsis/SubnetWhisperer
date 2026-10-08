@@ -41,7 +41,7 @@ def _validate_key(key, source):
         Fernet(key)
     except Exception as e:
         raise RuntimeError(
-            f"Invalid encryption key from {source}: {e}. It must be a 32-byte "
+            f"Invalid encryption key from {source}: {str(e).rstrip('.')}. It must be a 32-byte "
             "url-safe base64 Fernet key (generate one with "
             "`python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"`)."
         ) from e

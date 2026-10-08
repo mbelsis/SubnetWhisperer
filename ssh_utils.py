@@ -162,14 +162,21 @@ def load_private_key(key_data):
         getattr(paramiko, "ECDSAKey", None),
         getattr(paramiko, "DSSKey", None),
     ]
+    passphrase_protected = False
     for key_class in key_classes:
         if key_class is None:
             continue
         try:
             return key_class.from_private_key(file_obj=io.StringIO(key_data))
+        except paramiko.PasswordRequiredException:
+            passphrase_protected = True
         except (paramiko.SSHException, ValueError):
             continue
-    raise paramiko.SSHException("Unable to parse private key - unsupported key type")
+    if passphrase_protected:
+        raise paramiko.SSHException(
+            "Private key is passphrase-protected; passphrase-protected keys are not supported. "
+            "Remove the passphrase (ssh-keygen -p) or use a dedicated key without one.")
+    raise paramiko.SSHException("Unable to parse private key - unsupported or malformed key")
 
 
 # ---------------------------------------------------------------------------
@@ -511,7 +518,7 @@ def _scan_host(ip, port, attempts, sudo_password, commands, collect_info, collec
             for cmd, (is_safe, reason) in zip(commands, validation):
                 if not is_safe:
                     command_output.append({
-                        'command': cmd, 'exit_status': -2, 'stdout': '',
+                        'command': mask_sensitive_data(cmd), 'exit_status': -2, 'stdout': '',
                         'stderr': f"Command rejected due to security concerns: {reason}",
                         'success': False, 'security_blocked': True,
                     })
@@ -523,7 +530,7 @@ def _scan_host(ip, port, attempts, sudo_password, commands, collect_info, collec
                     else:
                         res = run_command(client, cmd)
                     entry = {
-                        'command': cmd,
+                        'command': mask_sensitive_data(cmd),
                         'exit_status': res['exit_status'],
                         'stdout': scrub(res['stdout']),
                         'stderr': scrub(res['stderr']),
@@ -531,7 +538,7 @@ def _scan_host(ip, port, attempts, sudo_password, commands, collect_info, collec
                         'security_blocked': False,
                     }
                 except Exception as e:
-                    entry = {'command': cmd, 'exit_status': -1, 'stdout': '',
+                    entry = {'command': mask_sensitive_data(cmd), 'exit_status': -1, 'stdout': '',
                              'stderr': scrub(str(e)), 'success': False, 'security_blocked': False}
                 command_output.append(entry)
                 if not entry['success']:

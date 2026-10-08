@@ -23,7 +23,7 @@
                 <hr>
               </div>
               <div class="col-md-6 mb-3">
-                <label for="{{ form.name.id }}" class="form-label">{{ form.name.label }}</label>
+                <label for="{{ form.name.id }}" class="form-label">{{ form.name.label.text }}</label>
                 {{ form.name(class="form-control", placeholder="Enter a name for this schedule") }}
                 {% if form.name.errors %}
                   <div class="invalid-feedback d-block">
@@ -44,7 +44,7 @@
                 <small class="text-muted">{{ form.is_active.description }}</small>
               </div>
               <div class="col-md-12 mb-3">
-                <label for="{{ form.description.id }}" class="form-label">{{ form.description.label }}</label>
+                <label for="{{ form.description.id }}" class="form-label">{{ form.description.label.text }}</label>
                 {{ form.description(class="form-control", rows=3, placeholder="Optional description for this scheduled scan") }}
                 {% if form.description.errors %}
                   <div class="invalid-feedback d-block">
@@ -63,7 +63,7 @@
               </div>
               
               <div class="col-md-4 mb-3">
-                <label for="{{ form.schedule_frequency.id }}" class="form-label">{{ form.schedule_frequency.label }}</label>
+                <label for="{{ form.schedule_frequency.id }}" class="form-label">{{ form.schedule_frequency.label.text }}</label>
                 {{ form.schedule_frequency(class="form-control") }}
                 {% if form.schedule_frequency.errors %}
                   <div class="invalid-feedback d-block">
@@ -75,7 +75,7 @@
               </div>
               
               <div class="col-md-4 mb-3" id="customIntervalContainer">
-                <label for="{{ form.custom_interval_minutes.id }}" class="form-label">{{ form.custom_interval_minutes.label }}</label>
+                <label for="{{ form.custom_interval_minutes.id }}" class="form-label">{{ form.custom_interval_minutes.label.text }}</label>
                 {{ form.custom_interval_minutes(class="form-control", min=5) }}
                 <small class="text-muted">{{ form.custom_interval_minutes.description }}</small>
                 {% if form.custom_interval_minutes.errors %}
@@ -88,7 +88,7 @@
               </div>
               
               <div class="col-md-4 mb-3">
-                <label for="{{ form.start_date.id }}" class="form-label">{{ form.start_date.label.text }} (UTC)</label>
+                <label for="{{ form.start_date.id }}" class="form-label">{{ form.start_date.label.text }}</label>
                 {{ form.start_date(class="form-control", type="datetime-local", value=(form.start_date.data.strftime('%Y-%m-%dT%H:%M') if form.start_date.data else '')) }}
                 <small class="text-muted">Interpreted as UTC. Current UTC time: <span id="currentUtcTime"></span></small>
                 {% if form.start_date.errors %}
@@ -101,7 +101,7 @@
               </div>
               
               <div class="col-md-4 mb-3">
-                <label for="{{ form.end_date.id }}" class="form-label">{{ form.end_date.label.text }} (UTC)</label>
+                <label for="{{ form.end_date.id }}" class="form-label">{{ form.end_date.label.text }}</label>
                 {{ form.end_date(class="form-control", type="datetime-local", value=(form.end_date.data.strftime('%Y-%m-%dT%H:%M') if form.end_date.data else '')) }}
                 <small class="text-muted">{{ form.end_date.description }} Interpreted as UTC.</small>
                 {% if form.end_date.errors %}
@@ -121,7 +121,7 @@
               </div>
               
               <div class="col-md-12 mb-3">
-                <label for="{{ form.subnets.id }}" class="form-label">{{ form.subnets.label }}</label>
+                <label for="{{ form.subnets.id }}" class="form-label">{{ form.subnets.label.text }}</label>
                 {{ form.subnets(class="form-control", rows=4) }}
                 <small class="text-muted">{{ form.subnets.description }}</small>
                 {% if form.subnets.errors %}
@@ -164,7 +164,7 @@
               {% endif %}
               
               <div class="col-md-6 mb-3">
-                <label for="{{ form.username.id }}" class="form-label">{{ form.username.label }}</label>
+                <label for="{{ form.username.id }}" class="form-label">{{ form.username.label.text }}</label>
                 {{ form.username(class="form-control") }}
                 {% if form.username.errors %}
                   <div class="invalid-feedback d-block">
@@ -176,7 +176,7 @@
               </div>
               
               <div class="col-md-6 mb-3" id="authTypeContainer">
-                <label for="{{ form.auth_type.id }}" class="form-label">{{ form.auth_type.label }}</label>
+                <label for="{{ form.auth_type.id }}" class="form-label">{{ form.auth_type.label.text }}</label>
                 {{ form.auth_type(class="form-control") }}
                 {% if form.auth_type.errors %}
                   <div class="invalid-feedback d-block">
@@ -188,7 +188,7 @@
               </div>
               
               <div class="col-md-12 mb-3" id="passwordContainer">
-                <label for="{{ form.password.id }}" class="form-label">{{ form.password.label }}</label>
+                <label for="{{ form.password.id }}" class="form-label">{{ form.password.label.text }}</label>
                 {{ form.password(class="form-control") }}
                 {% if form.password.errors %}
                   <div class="invalid-feedback d-block">
@@ -211,7 +211,7 @@
               </div>
               
               <div class="col-md-12 mb-3" id="privateKeyContainer" style="display: none;">
-                <label for="{{ form.private_key.id }}" class="form-label">{{ form.private_key.label }}</label>
+                <label for="{{ form.private_key.id }}" class="form-label">{{ form.private_key.label.text }}</label>
                 {{ form.private_key(class="form-control", rows=8) }}
                 <small class="text-muted">{{ form.private_key.description }}</small>
                 {% if form.private_key.errors %}
@@ -268,7 +268,7 @@
               </div>
               
               <div class="col-md-6 mb-3">
-                <label for="{{ form.command_template.id }}" class="form-label">{{ form.command_template.label }}</label>
+                <label for="{{ form.command_template.id }}" class="form-label">{{ form.command_template.label.text }}</label>
                 {{ form.command_template(class="form-control") }}
                 {% if form.command_template.errors %}
                   <div class="invalid-feedback d-block">
@@ -280,7 +280,7 @@
               </div>
               
               <div class="col-md-6 mb-3">
-                <label for="{{ form.concurrency.id }}" class="form-label">{{ form.concurrency.label }}</label>
+                <label for="{{ form.concurrency.id }}" class="form-label">{{ form.concurrency.label.text }}</label>
                 {{ form.concurrency(class="form-control", min=1, max=100) }}
                 <small class="text-muted">{{ form.concurrency.description }}</small>
                 {% if form.concurrency.errors %}
@@ -293,7 +293,7 @@
               </div>
               
               <div class="col-md-12 mb-3">
-                <label for="{{ form.custom_commands.id }}" class="form-label">{{ form.custom_commands.label }}</label>
+                <label for="{{ form.custom_commands.id }}" class="form-label">{{ form.custom_commands.label.text }}</label>
                 {{ form.custom_commands(class="form-control", rows=6) }}
                 <small class="text-muted">{{ form.custom_commands.description }}</small>
                 {% if form.custom_commands.errors %}
@@ -309,7 +309,7 @@
                 <div class="form-check mb-2">
                   {{ form.collect_server_info(class="form-check-input") }}
                   <label class="form-check-label" for="{{ form.collect_server_info.id }}">
-                    {{ form.collect_server_info.label }}
+                    {{ form.collect_server_info.label.text }}
                   </label>
                 </div>
               </div>
@@ -318,7 +318,7 @@
                 <div class="form-check mb-2">
                   {{ form.collect_detailed_info(class="form-check-input") }}
                   <label class="form-check-label" for="{{ form.collect_detailed_info.id }}">
-                    {{ form.collect_detailed_info.label }}
+                    {{ form.collect_detailed_info.label.text }}
                   </label>
                   <small class="d-block text-muted">{{ form.collect_detailed_info.description }}</small>
                 </div>

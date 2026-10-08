@@ -155,6 +155,16 @@ with app.app_context():
             logger.info("Initial admin account already exists (created by another process)")
 
 
+def _wants_json():
+    """True for fetch/XHR API calls, which should get JSON errors instead of redirects."""
+    if request.is_json or request.path.startswith('/api/') or request.method in ('PUT', 'DELETE'):
+        return True
+    if request.headers.get('X-CSRFToken') or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return True
+    best = request.accept_mimetypes.best_match(['application/json', 'text/html'])
+    return best == 'application/json' and request.accept_mimetypes[best] > request.accept_mimetypes['text/html']
+
+
 def admin_required(view):
     """Allow only admins; JSON callers get 403, page callers are redirected."""
     @wraps(view)
@@ -162,7 +172,7 @@ def admin_required(view):
         if not current_user.is_authenticated:
             return login_manager.unauthorized()
         if not current_user.is_admin:
-            if request.is_json or request.method in ('PUT', 'DELETE') or request.accept_mimetypes.best == 'application/json':
+            if _wants_json():
                 return jsonify({"error": "Admin privileges required"}), 403
             flash('Access denied. Admin privileges required.', 'danger')
             return redirect(url_for('index'))
@@ -175,7 +185,7 @@ def enforce_password_change():
     """Force users flagged with must_change_password to change it before anything else."""
     if (current_user.is_authenticated and getattr(current_user, 'must_change_password', False)
             and request.endpoint not in ('change_password', 'logout', 'static')):
-        if request.is_json or request.path.startswith('/api/'):
+        if _wants_json():
             return jsonify({"error": "Password change required"}), 403
         flash('Please change your password before continuing.', 'warning')
         return redirect(url_for('change_password'))
@@ -949,6 +959,7 @@ def _populate_schedule_choices(form):
 
 def _apply_schedule_form(scheduled_scan, form, is_new):
     """Copy form data onto a ScheduledScan, encrypting secrets. Returns an error message or None."""
+    from datetime import datetime
     from encryption_utils import encrypt_data
     from models import CredentialSet
 
@@ -1008,6 +1019,9 @@ def _apply_schedule_form(scheduled_scan, form, is_new):
             return 'No valid IP addresses found in the subnets field.'
     except ValueError as e:
         return str(e)
+
+    if form.end_date.data and form.end_date.data <= datetime.utcnow() and form.is_active.data:
+        return 'End date is in the past; the schedule would never run.'
 
     scheduled_scan.last_run = None if is_new else scheduled_scan.last_run
     scheduled_scan.calculate_next_run()
@@ -1282,7 +1296,42 @@ def get_credential(credential_id):
 @app.route('/settings')
 @login_required
 def settings():
-    return render_template('settings.html')
+    """Read-only view of the effective configuration (set through environment variables)."""
+    import ssh_utils
+    import subnet_utils
+    import encryption_utils
+    from security_utils import _is_sanitization_enabled
+    from scheduler import scheduler_service
+
+    if os.environ.get('ENCRYPTION_KEY'):
+        key_source = 'ENCRYPTION_KEY environment variable'
+    elif os.path.exists(encryption_utils.KEY_FILE_PATH):
+        key_source = 'instance/.encryption_key file'
+    else:
+        key_source = 'Derived from FLASK_SECRET_KEY / SECRET_KEY (legacy)'
+
+    policy = ssh_utils._host_key_policy_name()
+    policy_labels = {
+        'tofu': 'Trust on first use (unknown keys are recorded; changed keys are rejected)',
+        'reject': 'Reject hosts that are not already in known_hosts',
+        'warn': 'Accept any host key (no verification)',
+    }
+    config = [
+        ('Command filter (COMMAND_SANITIZATION)',
+         'Enabled: shell operators and restricted commands are blocked' if _is_sanitization_enabled()
+         else 'Disabled: only destructive commands are blocked'),
+        ('SSH host keys (SSH_HOST_KEY_POLICY)', policy_labels[policy]),
+        ('Command timeout (SSH_COMMAND_TIMEOUT)', f'{ssh_utils.SSH_COMMAND_TIMEOUT} seconds'),
+        ('Connection timeout (SSH_CONNECT_TIMEOUT)', f'{ssh_utils.SSH_CONNECT_TIMEOUT} seconds'),
+        ('Output kept per command stream (SSH_MAX_OUTPUT_BYTES)', f'{ssh_utils.MAX_OUTPUT_BYTES:,} bytes'),
+        ('Maximum IPs per scan (MAX_SCAN_IPS)', f'{subnet_utils.MAX_SCAN_IPS:,}'),
+        ('Maximum concurrency (MAX_CONCURRENCY)', str(ssh_utils.MAX_CONCURRENCY)),
+        ('Scheduler (START_SCHEDULER)', 'Running' if scheduler_service.running else 'Stopped'),
+        ('Database', db.engine.dialect.name),
+        ('Encryption key source', key_source),
+        ('Secure session cookie (SESSION_COOKIE_SECURE)', 'On' if app.config['SESSION_COOKIE_SECURE'] else 'Off'),
+    ]
+    return render_template('settings.html', config=config)
 
 @app.errorhandler(404)
 def page_not_found(e):

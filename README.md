@@ -202,7 +202,7 @@ On Linux, the container user (uid 1000) must be able to write to `./instance` an
 
 ## Configuration
 
-All settings are environment variables. [.env.example](.env.example) documents each one.
+All settings are environment variables. [.env.example](.env.example) documents each one. The **Settings** page in the app shows the values the running instance is using (read-only).
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -256,7 +256,7 @@ From the user menu in the top-right corner, admins can create users (optionally 
 
 1. Open **Scan**.
 2. Enter targets, one per line or comma-separated: single addresses, CIDR subnets (`192.168.1.0/24`, `2001:db8::/120`) or ranges (`192.168.1.1-192.168.1.10`, `2001:db8::1-2001:db8::20`). IPv4 and IPv6 are both supported. Addresses are deduplicated and sorted, and invalid entries are reported. You can also import a CSV file.
-3. Enter the SSH credentials (username plus password or private key) and the port, or (admins) choose saved credential sets.
+3. Enter the SSH credentials (username plus password or private key) and the port, or (admins) choose saved credential sets. Supported key types are Ed25519, RSA, ECDSA and DSA, in OpenSSH or PEM format; passphrase-protected keys are not supported.
 4. Choose a command template or enter custom commands.
 5. Choose the server-information level and the concurrency, then click **Start Scan**.
 

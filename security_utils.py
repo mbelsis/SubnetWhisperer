@@ -56,13 +56,13 @@ _PIPE_TO_SHELL_RE = re.compile(
 # the whole match.
 SENSITIVE_DATA_PATTERNS = [
     # Password patterns
-    r'(?i)\b(?:password|passwd|pwd|pass)\s*[=:]\s*([^\s;]+)',
+    r'(?i)(?<![A-Za-z0-9])(?:password|passwd|pwd|pass)\s*[=:]\s*([^\s;]+)',
 
     # API key and token patterns
-    r'(?i)\bapi[-_]?key\s*[=:]\s*([^\s;]+)',
-    r'(?i)\bauth[-_]?token\s*[=:]\s*([^\s;]+)',
-    r'(?i)\baccess[-_]?token\s*[=:]\s*([^\s;]+)',
-    r'(?i)\bsecret[-_]?key\s*[=:]\s*([^\s;]+)',
+    r'(?i)(?<![A-Za-z0-9])api[-_]?key\s*[=:]\s*([^\s;]+)',
+    r'(?i)(?<![A-Za-z0-9])auth[-_]?token\s*[=:]\s*([^\s;]+)',
+    r'(?i)(?<![A-Za-z0-9])access[-_]?token\s*[=:]\s*([^\s;]+)',
+    r'(?i)(?<![A-Za-z0-9])secret[-_]?key\s*[=:]\s*([^\s;]+)',
 
     # PEM private keys of any type (RSA, EC, OPENSSH, PKCS#8, ENCRYPTED, ...)
     r'(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----',
@@ -71,7 +71,7 @@ SENSITIVE_DATA_PATTERNS = [
     r'(?i)\b(?:https?|ftp|mongodb(?:\+srv)?|mysql|postgres|postgresql|redis)://[^:/@\s]+:([^@\s]+)@',
 
     # Encrypted values that might be sensitive
-    r'(?i)\bencrypted_(?:password|key|token)\s*[=:]\s*([^\s;]+)',
+    r'(?i)(?<![A-Za-z0-9])encrypted_(?:password|key|token)\s*[=:]\s*([^\s;]+)',
 ]
 
 _PEM_REPLACEMENT = "-----BEGIN PRIVATE KEY-----***REDACTED***-----END PRIVATE KEY-----"

@@ -302,6 +302,12 @@ class ScheduledScan(db.Model):
         now = now or datetime.utcnow()
         start = self.start_date or now
 
+        # A schedule whose end date has passed can never run again
+        if self.end_date and self.end_date <= now:
+            self.next_run = None
+            self.is_active = False
+            return None
+
         if self.last_run is None:
             next_run = start
         else:

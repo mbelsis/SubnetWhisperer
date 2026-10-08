@@ -479,7 +479,12 @@ document.addEventListener('DOMContentLoaded', function() {
                             if (manualTab) bootstrap.Tab.getOrCreateInstance(manualTab).show();
 
                             const count = Number(data.count) || 0;
-                            showMessage(`Imported ${count} IP address${count === 1 ? '' : 'es'} from ${file.name}. Review them and complete the form to start the scan.`, 'success');
+                            const skipped = Array.isArray(data.errors) ? data.errors : [];
+                            let message = `Imported ${count} IP address${count === 1 ? '' : 'es'} from ${file.name}. Review them and complete the form to start the scan.`;
+                            if (skipped.length) {
+                                message += ` Skipped ${skipped.length} invalid entr${skipped.length === 1 ? 'y' : 'ies'}: ${skipped.slice(0, 5).join('; ')}${skipped.length > 5 ? '; ...' : ''}`;
+                            }
+                            showMessage(message, skipped.length ? 'warning' : 'success');
                         } else {
                             showCsvMessage('CSV import failed: ' + (data.error || 'Unknown error'), 'danger');
                         }
