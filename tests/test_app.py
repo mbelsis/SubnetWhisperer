@@ -292,9 +292,9 @@ class AppRoutesTestCase(unittest.TestCase):
         self.assertEqual(self.client.delete(f"/api/delete_scan/{session_id}").status_code, 404)
 
     def test_schedule_next_run_starts_at_start_date(self):
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
         with self.app.app_context():
-            start = datetime.utcnow() + timedelta(days=1)
+            start = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1)
             schedule = self.app_module.ScheduledScan(
                 name="s", subnets="10.0.0.1", username="u", auth_type="password",
                 schedule_frequency="daily", start_date=start, is_active=True)

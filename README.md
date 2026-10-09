@@ -6,16 +6,18 @@ A web-based tool for scanning subnets, running commands over SSH and analysing t
 
 ## Features
 
-- **User Authentication**: login-protected interface with admin and non-admin roles
+- **User Authentication**: login-protected interface with admin and non-admin roles, login lockout after repeated failures, and per-user scan visibility (non-admins see only their own scans)
 - **Subnet Scanning**: scan IPv4 and IPv6 addresses, CIDR subnets and ranges in parallel
 - **SSH Connection**: password or private-key authentication (with or without a key passphrase), sudo with or without a password, on a configurable port
-- **Command Execution**: run custom commands or predefined templates, with a best-effort command filter
+- **Command Execution**: run custom commands or predefined templates, with an optional command allowlist (only admin-approved template lines run) or a best-effort denylist filter
 - **Server Profiling**: collect basic or detailed information about remote servers
 - **Result Analysis**: view and filter scan results with charts and statistics
 - **Export**: CSV (protected against spreadsheet formula injection), JSON or PDF
 - **Scheduled Scans**: recurring scans run by a background scheduler
 - **Encrypted Credential Storage**: SSH passwords, keys, key passphrases and sudo passwords are encrypted with Fernet
-- **Multiple Credential Sets**: saved credential sets are tried in priority order
+- **Multiple Credential Sets**: saved credential sets are tried in priority order, each optionally limited to the subnets it belongs to
+- **Scan Scope**: optional list of authorised networks (`SCAN_ALLOWED_SUBNETS`); targets outside it are refused
+- **Audit Log**: sign-ins, scans, exports and every configuration change, viewable by admins and written to the `audit` logger
 - **Customizable Theme**: dark and light mode
 
 ## Quick Start
@@ -92,7 +94,7 @@ SubnetWhisperer/
 │   ├── test_docker_integration.py
 │   ├── run_docker_integration.py
 │   ├── docker-compose.integration.yml
-│   ├── docker/               # SSH target images and test-only keys
+│   ├── docker/               # SSH target images (test key pair is generated at test time)
 │   └── README.md
 ├── instance/                 # Runtime data, created on first start, NOT in git
 │   ├── subnet_whisperer.db   #   SQLite database (default)
@@ -354,9 +356,9 @@ On **Credentials**, click **Add New Credential Set** and enter: username; authen
 
 Open **Scan**:
 
-1. **Targets**: one per line or comma-separated. Single addresses (`192.168.1.10`, `2001:db8::5`), CIDR subnets (`192.168.1.0/24`, `2001:db8::/120`) or ranges (`192.168.1.1-192.168.1.10`, the short form `192.168.1.1-10`, or `2001:db8::1-2001:db8::20`). Click **Validate Subnets** to see how many addresses will be scanned, a sample, and any invalid entries. Or use the **CSV Import** tab: upload a CSV with a column named `ip`, `ip_address`, `subnet`, `address` or `network` (otherwise the first column is used); the addresses are loaded into the form for review, and invalid rows are reported.
+1. **Targets**: one per line or comma-separated. If `SCAN_ALLOWED_SUBNETS` is set, every target must be inside it (Validate Subnets reports targets outside it). Single addresses (`192.168.1.10`, `2001:db8::5`), CIDR subnets (`192.168.1.0/24`, `2001:db8::/120`) or ranges (`192.168.1.1-192.168.1.10`, the short form `192.168.1.1-10`, or `2001:db8::1-2001:db8::20`). Click **Validate Subnets** to see how many addresses will be scanned, a sample, and any invalid entries. Or use the **CSV Import** tab: upload a CSV with a column named `ip`, `ip_address`, `subnet`, `address` or `network` (otherwise the first column is used); the addresses are loaded into the form for review, and invalid rows are reported.
 2. **Credentials**: enter them manually (see [SSH Authentication Options](#2-ssh-authentication-options)) or, as an admin, tick **Use Saved Credential Sets** and pick one set or all of them.
-3. **Commands**: pick a template and/or type custom commands, one per line. To run a command as root, start it with `sudo`, for example `sudo cat /var/log/syslog`. The [command filter](#command-filtering) rejects dangerous commands and, by default, pipes, redirects and chaining (`|`, `>`, `;`, `&&`); rejected commands are shown as **Blocked** in the results and are not run.
+3. **Commands**: pick a template and/or type custom commands, one per line. To run a command as root, start it with `sudo`, for example `sudo cat /var/log/syslog`. The [command filter](#command-filtering) rejects dangerous commands and, by default, pipes, redirects and chaining (`|`, `>`, `;`, `&&`); rejected commands are shown as **Blocked** in the results and are not run. With `COMMAND_SANITIZATION=allowlist`, only lines that appear in a template are accepted and the scan is refused if any other command is entered.
 4. **Server information**: tick **Collect Server Information** for the basic profile, and also **Collect Detailed Server Profile** for the detailed one (see below).
 5. **Concurrency** (hosts scanned at the same time, 1 to `MAX_CONCURRENCY`) and **Port**, then **Start Scan**.
 
@@ -566,6 +568,12 @@ See [TESTING.md](TESTING.md) and [tests/README.md](tests/README.md). Tests set `
 - **`sudo` commands fail**: enter the sudo password (unless the account has `NOPASSWD` sudo) and check that the account is allowed to use sudo on the target (`sudo -l`).
 - **Firewall rules or network cards are empty**: they need root; give the account sudo rights and the sudo password.
 - **Command shows "Blocked"**: the command filter rejected it; see [Command Filtering](#command-filtering).
+- **"not in an approved command template"**: `COMMAND_SANITIZATION=allowlist` is on. Ask an admin to add the exact command line to a template.
+- **"outside the authorised scan scope (SCAN_ALLOWED_SUBNETS)"**: a target is outside the configured scope. Remove it, or have the scope changed if the assessment is authorised.
+- **"Skipped ... credential is not allowed for <ip>"**: the credential set's **Allowed Subnets** does not include that host, so it was not sent there.
+- **"Too many failed login attempts"** (HTTP 429): wait for `LOGIN_LOCKOUT_MINUTES` (15) or try from the user's usual address; restarting the app also clears the counters. Behind a reverse proxy, set `TRUST_PROXY_HOPS` or every user shares the proxy's address.
+- **Scan shows "Interrupted"**: the application restarted while the scan was running. Run it again; admins can delete the interrupted session.
+- **A scan returns "not found" for a user**: non-admins only see scans they started; scans from before ownership was added are visible to admins only.
 - **Command "timed out"**: it ran longer than `SSH_COMMAND_TIMEOUT` or waited for input; raise the timeout or make the command non-interactive.
 - **App won't start, "Invalid encryption key from ENCRYPTION_KEY"**: the value isn't a Fernet key. Generate one as shown in [Encryption Key](#encryption-key), or unset it to use `instance/.encryption_key`.
 - **"could not be decrypted (encryption key changed?)"**: restore the old key, or re-enter the credentials.

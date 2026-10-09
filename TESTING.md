@@ -14,6 +14,15 @@ This project includes an automated test suite built with Python's standard `unit
 - CSV export protection against spreadsheet formulas
 - schedule timing (the first run at the start date)
 - loading passphrase-protected private keys (correct, missing and wrong passphrase)
+- scan ownership: non-admins cannot see, poll, export or open other users' scans; admins see all
+- result list without output, and the per-host detail endpoint
+- recovery of scans left running by a restart (marked interrupted, deletable)
+- login lockout per username and address
+- audit log entries and admin-only access to the audit log and settings
+- security headers and CSP nonces on inline scripts
+- the command denylist against known bypasses, and allowlist mode (direct checks and `/start_scan`)
+- scan scope (`SCAN_ALLOWED_SUBNETS`) and credential sets limited to allowed subnets
+- removing a stored sudo password, and race-safe creation of the session secret file
 
 The tests use:
 
@@ -141,12 +150,11 @@ OK
 
 - The suite currently focuses on route-level smoke tests, not full SSH execution or scheduler behavior.
 - The Docker integration suite covers real SSH execution and threaded scan completion, but it is slower and should be treated as an explicit integration run rather than the default fast test pass.
-- Some warnings may still appear during test runs from the application codebase, including SQLAlchemy legacy warnings and `datetime.utcnow()` deprecation warnings.
+- Some warnings may still appear during test runs from third-party libraries.
 - Warnings do not fail the suite unless you explicitly configure them to do so.
 
 ## Next Useful Expansions
 
-- Add tests for login/logout behavior and access control
-- Add form submission tests for schedule and credential creation
-- Add tests for export endpoints
+- Add form submission tests for schedule creation and editing
+- Cover the scheduler loop (claiming, scope and allowlist checks at run time)
 - Mock SSH execution and cover successful and failed scan flows

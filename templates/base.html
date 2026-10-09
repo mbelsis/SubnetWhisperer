@@ -178,9 +178,12 @@
                     
                     <h5>Security Features</h5>
                     <ul>
-                        <li>SSH credentials are stored using Fernet symmetric encryption</li>
-                        <li>Encryption keys are derived from application secrets or environment variables</li>
-                        <li>Secure transmission of credentials during scan operations</li>
+                        <li>Stored SSH passwords, keys, key passphrases and sudo passwords are encrypted with Fernet; the key comes from <code>ENCRYPTION_KEY</code> or <code>instance/.encryption_key</code></li>
+                        <li>SSH host keys are verified (trust on first use by default)</li>
+                        <li>Credential sets can be limited to the subnets they belong to</li>
+                        <li>Optional command allowlist and authorised scan scope</li>
+                        <li>Users see only their own scans; admins see everything</li>
+                        <li>Login lockout, security headers and an audit log of security-relevant actions</li>
                     </ul>
                     
                     <h5>Disclaimer</h5>

@@ -1723,9 +1723,9 @@ def audit_log():
     from models import AuditLog
     page = request.args.get('page', 1, type=int) or 1
     action = (request.args.get('action') or '').strip()
-    query = AuditLog.query
+    query = db.select(AuditLog)
     if action:
-        query = query.filter(AuditLog.action.startswith(action, autoescape=True))
+        query = query.where(AuditLog.action.startswith(action, autoescape=True))
     pagination = db.paginate(query.order_by(AuditLog.id.desc()), page=max(page, 1),
                              per_page=AUDIT_PAGE_SIZE, error_out=False)
     return render_template('audit.html', entries=pagination.items, pagination=pagination, action=action)
