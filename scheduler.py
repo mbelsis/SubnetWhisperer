@@ -3,13 +3,13 @@ Scheduler service for running scans on schedule
 """
 import threading
 import logging
-from datetime import datetime
 from sqlalchemy import update
-from app import db, app
-from models import ScheduledScan, ScanSession, scheduled_scan_sessions
+from app import db, app, audit
+from models import ScheduledScan, ScanSession, scheduled_scan_sessions, utcnow, approved_template_commands
 from ssh_utils import start_scan_session
-from subnet_utils import parse_subnet_input
+from subnet_utils import parse_subnet_input, out_of_scope
 from encryption_utils import decrypt_data
+from security_utils import is_allowlist_mode
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -99,7 +99,7 @@ class SchedulerService:
 
     def _check_scheduled_scans(self):
         """Check for scheduled scans that need to be executed"""
-        current_time = datetime.utcnow()
+        current_time = utcnow()
 
         # Find active schedules that need to run
         due_ids = [row.id for row in ScheduledScan.query.with_entities(ScheduledScan.id).filter(
@@ -134,6 +134,13 @@ class SchedulerService:
         if not ip_addresses:
             logger.warning(f"No valid IP addresses found for scheduled scan {scheduled_scan.id}")
             return None
+        outside = out_of_scope(ip_addresses)
+        if outside:
+            logger.error(f"Scheduled scan {scheduled_scan.id} targets {len(outside)} address(es) outside "
+                         f"SCAN_ALLOWED_SUBNETS (e.g. {outside[0]}); skipping this run")
+            audit('schedule.run', f"schedule:{scheduled_scan.id}", outcome='denied', user=None,
+                  details=f"{len(outside)} address(es) outside SCAN_ALLOWED_SUBNETS")
+            return None
 
         # Get commands
         commands = []
@@ -167,6 +174,7 @@ class SchedulerService:
 
         # Create a new scan session linked to this schedule
         scan_session = ScanSession(
+            owner_id=scheduled_scan.owner_id,
             username=username,
             auth_type=scheduled_scan.auth_type,
             collect_server_info=scheduled_scan.collect_server_info,
@@ -193,9 +201,13 @@ class SchedulerService:
             credential_set_ids=credential_set_ids,
             concurrency=scheduled_scan.concurrency or 10,
             port=scheduled_scan.port or 22,
-            private_key_passphrase=private_key_passphrase
+            private_key_passphrase=private_key_passphrase,
+            allowed_commands=approved_template_commands() if is_allowlist_mode() else None
         )
 
+        audit('schedule.run', f"schedule:{scheduled_scan.id}", user=None,
+              details=f"scan session {scan_session.id}, {len(ip_addresses)} host(s), "
+                      f"{len(commands)} command(s), credential_set={scheduled_scan.credential_set_id}")
         logger.info(f"Scheduled scan {scheduled_scan.id} started with scan session {scan_session.id}")
         return scan_session.id
 

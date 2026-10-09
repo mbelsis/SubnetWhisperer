@@ -258,7 +258,7 @@ cat /var/log/auth.log | grep -i fail | tail -20</pre>
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
 document.addEventListener('DOMContentLoaded', function() {
     // DataTable initialization
     const templatesTableEl = document.getElementById('templatesTable');

@@ -12,6 +12,35 @@ RUN_DOCKER_TESTS = os.environ.get("RUN_DOCKER_TESTS") == "1"
 TEST_ENCRYPTION_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 
 
+KEYS_DIR = Path(__file__).resolve().parent / "docker" / "keys"
+
+
+def ensure_test_key_pair(keys_dir=KEYS_DIR, name="id_ed25519_valid"):
+    """Create the throwaway Ed25519 key pair the key-auth container trusts.
+
+    The pair is generated on first use instead of being committed, so no
+    private key lives in the repository. Returns the private key path.
+    """
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    private_path = keys_dir / name
+    public_path = keys_dir / f"{name}.pub"
+    if private_path.exists() and public_path.exists():
+        return private_path
+    keys_dir.mkdir(parents=True, exist_ok=True)
+    key = Ed25519PrivateKey.generate()
+    private_bytes = key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.OpenSSH, serialization.NoEncryption())
+    public_bytes = key.public_key().public_bytes(
+        serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH)
+    fd = os.open(private_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(private_bytes)
+    public_path.write_bytes(public_bytes + b" subnet-whisperer-test\n")
+    return private_path
+
+
 def run_command(command, cwd):
     return subprocess.run(command, cwd=cwd, check=True, capture_output=True, text=True)
 
@@ -75,7 +104,8 @@ class DockerIntegrationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.project_root = Path(__file__).resolve().parents[1]
         cls.compose_file = cls.project_root / "tests" / "docker-compose.integration.yml"
-        cls.key_path = cls.project_root / "tests" / "docker" / "keys" / "id_ed25519_valid"
+        # Generated before the image build, which copies the public key into the container
+        cls.key_path = ensure_test_key_pair()
 
         try:
             run_command(

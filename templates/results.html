@@ -61,13 +61,16 @@
                                     <span class="badge bg-warning">Running</span>
                                     {% elif session.status == 'completed' %}
                                     <span class="badge bg-success">Completed</span>
+                                    {% elif session.status == 'interrupted' %}
+                                    <span class="badge bg-secondary" title="The application restarted while this scan was running">Interrupted</span>
                                     {% else %}
                                     <span class="badge bg-danger">Failed</span>
                                     {% endif %}
                                 </td>
-                                <td class="text-success">{{ session.to_dict().success_count }}</td>
-                                <td class="text-danger">{{ session.to_dict().failed_count }}</td>
-                                <td>{{ session.to_dict().total_count }}</td>
+                                {% set c = counts.get(session.id, {'success': 0, 'failed': 0, 'total': 0}) %}
+                                <td class="text-success">{{ c.success }}</td>
+                                <td class="text-danger">{{ c.failed }}</td>
+                                <td>{{ c.total }}</td>
                                 <td>
                                     <button type="button" class="btn btn-sm btn-primary view-results" data-scan-id="{{ session.id }}">
                                         <i class="fas fa-eye"></i>

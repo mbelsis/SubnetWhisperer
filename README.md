@@ -219,7 +219,7 @@ make prune          # Host-wide 'docker system prune', asks for confirmation fir
 
 The Makefile uses `docker compose`. For the legacy binary run `make COMPOSE=docker-compose <target>`.
 
-Compose reads `.env` from the project folder and passes these variables to the app: `ENCRYPTION_KEY`, `FLASK_SECRET_KEY` (legacy, no default), `SESSION_SECRET`, `ADMIN_PASSWORD`, `SESSION_COOKIE_SECURE`, `COMMAND_SANITIZATION`, `SSH_HOST_KEY_POLICY`, `MAX_SCAN_IPS`, `MAX_CONCURRENCY`, `START_SCHEDULER` and `DATABASE_URL`. Empty values count as unset.
+Compose reads `.env` from the project folder and passes these variables to the app: `ENCRYPTION_KEY`, `FLASK_SECRET_KEY` (legacy, no default), `SESSION_SECRET`, `ADMIN_PASSWORD`, `SESSION_COOKIE_SECURE`, `COMMAND_SANITIZATION`, `SCAN_ALLOWED_SUBNETS`, `SSH_HOST_KEY_POLICY`, `MAX_SCAN_IPS`, `MAX_CONCURRENCY`, `LOGIN_MAX_FAILURES`, `LOGIN_IP_MAX_FAILURES`, `LOGIN_LOCKOUT_MINUTES`, `TRUST_PROXY_HOPS`, `START_SCHEDULER` and `DATABASE_URL`. Empty values count as unset.
 
 - **Encryption key**: if `ENCRYPTION_KEY` is not set, the app creates `instance/.encryption_key` in the bind-mounted `./instance` folder on first start. Back it up.
 - **PostgreSQL**: the `postgres` profile takes `POSTGRES_USER` (default `postgres`), `POSTGRES_PASSWORD` (required) and `POSTGRES_DB` (default `subnet_whisperer`) and builds `DATABASE_URL` from them. The database port is **not** published on the host; only the app container can reach it. Use a password without URL-special characters (`@ : / ? #`).
@@ -269,7 +269,13 @@ All settings are environment variables. [.env.example](.env.example) documents e
 | `PORT` | `5000` | Port (`main.py` only) |
 | `HOST_PORT` | `5000` | Host port published by docker compose |
 | `SESSION_COOKIE_SECURE` | `false` | Send the session cookie over HTTPS only |
-| `COMMAND_SANITIZATION` | `enabled` | Command filter mode (`enabled` or `disabled`) |
+| `COMMAND_SANITIZATION` | `enabled` | Command policy: `allowlist`, `enabled` or `disabled` (see [Command Filtering](#command-filtering)) |
+| `SCAN_ALLOWED_SUBNETS` | unset (any) | Authorised scan scope: CIDRs/addresses scans and schedules may target |
+| `LOGIN_MAX_FAILURES` | `5` | Failed logins per username and client address before a lockout |
+| `LOGIN_IP_MAX_FAILURES` | `20` | Failed logins per client address (any username) before a lockout |
+| `LOGIN_LOCKOUT_MINUTES` | `15` | Failure-counting window and lockout duration |
+| `TRUST_PROXY_HOPS` | `0` | Number of reverse proxies whose `X-Forwarded-*` headers are trusted |
+| `RECOVER_INTERRUPTED_SCANS` | `true` | At startup, mark scans left running by a previous process as interrupted |
 | `SSH_HOST_KEY_POLICY` | `tofu` | `tofu`, `reject` or `warn` |
 | `SSH_KNOWN_HOSTS_FILE` | `instance/known_hosts` | Known-hosts file used by the app |
 | `SSH_COMMAND_TIMEOUT` | `60` | Per-command timeout in seconds |
@@ -332,9 +338,11 @@ Every combination of login method and sudo is supported:
 
 ### 3. Save Credential Sets (admin)
 
-On **Credentials**, click **Add New Credential Set** and enter: username; authentication type (password or SSH key); the password, or the private key and its optional passphrase; an optional sudo password; a priority (higher is tried first); and a description.
+On **Credentials**, click **Add New Credential Set** and enter: username; authentication type (password or SSH key); the password, or the private key and its optional passphrase; an optional sudo password; a priority (higher is tried first); a description; and optionally **Allowed Subnets**.
 
-- Secrets are encrypted in the database (see [Where Credentials Are Stored](#where-credentials-are-stored)). They are never shown again: when you edit a set, leave the secret fields blank to keep the stored values. If you paste a new key, also enter its passphrase (blank means the new key has none).
+> **Credential exposure.** With password authentication the SSH server receives the password itself, so every host a credential is tried against can capture it, including an unknown or compromised host in the scanned range. Trying all credential sets against a range sends *every* stored password to *every* host, and can lock accounts out. Set **Allowed Subnets** on each set (CIDRs or addresses, separated by commas or new lines) so it is only ever sent to the hosts it belongs to; hosts outside them are skipped with "credential is not allowed for this host". Prefer SSH keys, which never leave the scanner, and use `SSH_HOST_KEY_POLICY=reject` in production.
+
+- Secrets are encrypted in the database (see [Where Credentials Are Stored](#where-credentials-are-stored)). They are never shown again: when you edit a set, leave the secret fields blank to keep the stored values. If you paste a new key, also enter its passphrase (blank means the new key has none). Tick **Remove the stored sudo password** to delete a sudo password.
 - A scan can use **one** set, or **all** sets: each host is then tried with every set in priority order until one logs in. This is useful when different servers use different accounts.
 - A set that is used by a schedule can't be deleted until the schedule is changed.
 
@@ -367,13 +375,13 @@ Firewall rules (`iptables`/`nft`) and hardware details (`lshw`) need root: they 
 
 Open **Results**:
 
-- The **Recent Scans** table lists every scan session with its status (running, completed or failed) and success and failure counts. Click a session to see its hosts.
+- The **Recent Scans** table lists your scan sessions (admins see everyone's) with their status (running, completed, failed or interrupted) and success and failure counts. Click a session to see its hosts. A scan is **interrupted** when the application restarted while it was running.
 - Filter hosts by status or sudo access, or search. Click the eye button to open a host's details:
   - **Commands**: each command with its exit code, output and errors. Blocked commands are marked **Blocked**.
   - **Server Info**: the collected profile.
   - **Errors**: connection or authentication errors.
-- **Export** the session as **CSV** (one row per host), **JSON** (everything, including command output and server info) or **PDF** (summary charts and the first 20 hosts).
-- Admins can delete finished scans.
+- **Export** the session as **CSV** (one row per host), **JSON** (everything, including command output and server info) or **PDF** (summary charts and the first 20 hosts). Exports are recorded in the audit log.
+- Admins can delete finished (and interrupted) scans.
 
 Times are stored in UTC and shown in your browser's local time.
 
@@ -382,16 +390,18 @@ Times are stored in UTC and shown in your browser's local time.
 On **Schedules**, click **New Schedule** and fill in:
 
 - **Name and targets**: same format as on the scan page.
-- **Credentials**: username and password or key (with optional passphrase), **or** a saved credential set. Optionally a sudo password and the SSH port.
+- **Credentials**: username and password or key (with optional passphrase), **or** a saved credential set. Optionally a sudo password and the SSH port. When editing, uncheck **Keep existing sudo password** and leave the field blank to remove it.
 - **Commands**: a template and/or custom commands, plus the server-information options and concurrency.
 - **Frequency**: hourly, daily, weekly, monthly (same day each month) or every N minutes (custom, minimum 5).
 - **Start and end dates, in UTC.** The first run happens at the start date. The end date is optional, and a schedule whose end date has passed cannot be activated.
 
-The schedule list shows each schedule's next run. Use the buttons to view, edit, deactivate/activate (pause and play icons) or delete a schedule. Each run appears as a normal scan session on **Results**.
+The schedule list shows each schedule's next run. Use the buttons to view, edit, deactivate/activate (pause and play icons) or delete a schedule. Each run appears as a normal scan session on **Results**, owned by the admin who created the schedule. Targets and commands are checked against `SCAN_ALLOWED_SUBNETS` and the command policy when the schedule is saved and again at every run.
 
 The scheduler runs in the background inside the web process and checks for due schedules every 60 seconds. It starts with the app unless `START_SCHEDULER=false`. Each run is claimed atomically in the database, so even if several processes run a scheduler, a schedule is not run twice. The default single-worker gunicorn setup is still recommended. If the app was down when runs were due, the missed runs are skipped (not replayed) and the schedule continues at its next regular time.
 
-### 8. Settings
+### 8. Settings and Audit Log (admin)
+
+**Audit Log** lists security-relevant events, newest first: sign-ins (successful, failed and locked out), sign-outs, password changes and resets, user creation and deletion, scans started (targets count, port, number of commands, credential sets used) and refused, scan exports and deletions, and every change to credential sets, command templates and schedules, plus scheduled runs. Each entry has the time (UTC), user, client address, action, outcome and target. Secrets are never recorded. The same events go to the `audit` logger, so they can be shipped to a SIEM from the application log. Filter by an action prefix such as `auth.` or `scan.`.
 
 **Settings** shows the configuration the running instance uses: command-filter mode, host-key policy, timeouts, limits, scheduler status, database type and where the encryption key comes from. It is read-only: settings are environment variables (see [Configuration](#configuration)), and changes need a restart. The theme (light or dark) is switched with the button in the navigation bar.
 
@@ -416,11 +426,20 @@ Subnet Whisperer stores SSH credentials and runs commands on remote hosts. Run i
 
 - All pages require login (Flask-Login, bcrypt password hashes, minimum length 8).
 - The first admin's password comes from `ADMIN_PASSWORD` or is generated (see [First Login](#first-login)). A password change is forced at first login.
-- **Admins** can: manage users; view and manage credential sets (`/credentials` and the credential API); use saved credential sets in scans; create, edit, activate and delete schedules; create, edit and delete command templates; delete scans.
-- **Non-admins** can: run scans with manually entered credentials; view results and exports; list templates and use them in scans; change their own password.
+- **Admins** can: manage users; view and manage credential sets (`/credentials` and the credential API); use saved credential sets in scans; create, edit, activate and delete schedules; create, edit and delete command templates; view and delete every scan; view the audit log and settings.
+- **Non-admins** can: run scans with manually entered credentials; view and export **their own** scans only (other scans return 404); list templates and use them in scans; change their own password.
+- **Login throttling**: after `LOGIN_MAX_FAILURES` (5) failed logins for one username from one address, or `LOGIN_IP_MAX_FAILURES` (20) from one address, further attempts are refused with HTTP 429 for `LOGIN_LOCKOUT_MINUTES` (15). Lockouts are per address, so an attacker cannot lock the real admin out from elsewhere. Behind a reverse proxy set `TRUST_PROXY_HOPS=1` so the real client address is used. Response times do not reveal whether a username exists. The counters are kept in memory (single process).
 - CSRF protection covers all forms and AJAX requests. Tokens last as long as the session.
 - Logout is a POST request with a CSRF token. Session cookies are `SameSite=Lax`, and `Secure` when `SESSION_COOKIE_SECURE=true`.
 - The session is signed with `SESSION_SECRET`, or with a secret generated once and stored in `instance/.secret_key`.
+
+### Scan Scope
+
+Set `SCAN_ALLOWED_SUBNETS` to the networks you are authorised to assess (for example `10.0.0.0/8, 192.168.10.0/24`). Scans and schedules with any target outside it are refused (HTTP 403 for scans; schedules cannot be saved and skip the run), and the refusal is audited. When it is unset, any address may be scanned. An invalid value stops the app from starting, so a typo can never silently remove the restriction. This keeps the scanner, and any user of it, from being used to probe networks outside the agreed scope.
+
+### HTTP Security Headers
+
+Every response carries a Content-Security-Policy (scripts only from the app, the pinned CDNs and per-request nonces; no framing; no plugins), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` and `Cache-Control: no-store` (results and credentials are not kept in shared caches). With `SESSION_COOKIE_SECURE=true`, `Strict-Transport-Security` is sent as well.
 
 ### Encryption Key
 
@@ -452,21 +471,42 @@ Passwords, private keys (including PKCS#8 and encrypted keys), tokens and simila
 
 ### Command Filtering
 
-The command filter is a **best-effort guardrail against mistakes, not a security boundary**. Anyone who can run arbitrary commands over SSH with a set of credentials can do whatever those credentials allow, and a determined user can find commands the filter doesn't recognise. Control access with roles and with the permissions of the remote accounts.
+`COMMAND_SANITIZATION` selects the command policy:
+
+| Mode | What may run | Strength |
+|---|---|---|
+| `allowlist` | only command lines that appear, verbatim, in a command template | an enforceable control |
+| `enabled` (default) | anything except the always-blocked list, shell operators and restricted programs | best-effort denylist |
+| `disabled` | anything except the always-blocked list | best-effort denylist |
+
+**A denylist cannot be made bypass-proof.** Shell commands are a programming language: `python3 -c`, `perl -e`, `awk`, `base64 -d | sh`, a script already on the host, `find -exec`, an alias, or a path written differently all reach the same result. The denylist modes catch mistakes and obvious damage; do not rely on them as a control.
+
+**Allowlist mode** turns this around: admins decide exactly which command lines exist (command templates are admin-only), and everything else is refused, both when a scan is submitted (HTTP 403, audited) and again on the worker just before a command is sent. Templates may use pipes and redirects, because an admin approved the exact line. The always-blocked checks below still apply. The scan page tells users when the allowlist is on.
+
+**Enforce on the targets too.** The application only decides what it *sends*. What a command can *do* is decided on the target, and that is where the real boundary belongs:
+
+- Scan with a dedicated, unprivileged account (no shell login for people, no membership in `wheel`/`sudo`/`docker`).
+- If root-level data is needed, grant only specific commands in sudoers instead of `ALL`, for example:
+  ```
+  # /etc/sudoers.d/subnet-whisperer
+  scanner ALL=(root) NOPASSWD: /usr/sbin/iptables -L -n -v, /usr/sbin/nft list ruleset, /usr/bin/lshw -class network -short
+  ```
+- To make the account unable to run anything else at all, pin it to a wrapper in `sshd_config` (`Match User scanner` / `ForceCommand /usr/local/bin/scanner-wrapper`) that only executes approved commands from `$SSH_ORIGINAL_COMMAND`, or restrict its key in `authorized_keys` with `command="...",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding`.
+- Log the account's sessions on the target (auditd / `pam_tty_audit`) so activity is attributable there as well.
 
 Commands are tokenized like a shell (shlex) and checked before they are sent. A rejected command is simply not run; the result shows it as blocked. There is no approval workflow.
 
 **Always blocked** (in every mode):
 
-- `rm` recursive deletes of `/`, `/*` or `~`, in any flag order (`-rf`, `-fr`, `-r -f`, `--recursive --force`, `--no-preserve-root`)
+- `rm` recursive deletes of `/`, `/*` or `~`, in any flag order (`-rf`, `-fr`, `-r -f`, `--recursive --force`, `--no-preserve-root`), including path variants such as `/.`, `//` or `/usr/..`
 - `find / ... -delete`
 - `mkfs` and its variants (`mkfs.ext4`, ...)
 - `dd`, `shred` or `wipefs` writing to block devices (`/dev/sd*`, `/dev/hd*`, `/dev/nvme*`, `/dev/vd*`, `/dev/xvd*`, `/dev/mmcblk*`)
 - fork bombs
 - `curl` or `wget` piped into `sh` or `bash`
-- `shutdown`, `reboot`, `halt`, `poweroff`, `init 0`/`init 6`, `telinit 0`/`telinit 6` when used as commands (a word such as `halting-problem` is fine)
-- `sudo -i`, `sudo -s`, `sudo su`
-- access to `/etc/shadow` (`cat /etc/passwd` is allowed)
+- `shutdown`, `reboot`, `halt`, `poweroff`, `kexec`, `init 0`/`init 6`, `telinit 0`/`telinit 6` when used as commands (a word such as `halting-problem` is fine), and `systemctl`/`loginctl` power and rescue verbs (`reboot`, `poweroff`, `halt`, `suspend`, `rescue`, `emergency`, `isolate`, ...)
+- `sudo -i`, `sudo -s`, `sudo su`, and starting a shell through `sudo`, `doas` or `pkexec` (`sudo bash`)
+- access to `/etc/shadow`, `/etc/gshadow` and their backups, also via path variants such as `/etc/../etc/shadow` (`cat /etc/passwd` is allowed)
 
 These checks also apply inside shell wrappers such as `bash -c "..."` or `sudo sh -c "..."`. Interpreters (`python -c`, `perl -e`, ...) are not inspected.
 
@@ -491,7 +531,7 @@ Examples in enabled mode:
 | `systemctl status nginx` | blocked (restricted command) |
 | `rm -fr /`, `sudo reboot` | blocked in every mode |
 
-To run pipelines while keeping the filter enabled, put them in a script on the target and run the script as a single command, or set `COMMAND_SANITIZATION=disabled`.
+To run pipelines while keeping the filter enabled, put them in a script on the target and run the script as a single command, put the exact pipeline in a template and use `COMMAND_SANITIZATION=allowlist`, or set `COMMAND_SANITIZATION=disabled`.
 
 ## Upgrading from Earlier Versions
 
@@ -508,6 +548,9 @@ To run pipelines while keeping the filter enabled, put them in a script on the t
 - **PostgreSQL in compose** now needs `POSTGRES_PASSWORD`, and port 5432 is no longer published. If your existing `postgres_data` volume was initialised with `postgres`/`postgres`, set `POSTGRES_PASSWORD=postgres` (or change the password inside the database first).
 - **Python 3.11** is now required.
 - **Schedules** are interpreted in UTC. Check the start and end times of existing schedules.
+- **Scan ownership.** Scans now belong to the user who started them, and non-admins only see their own. Scans created before this change have no owner, so only admins see them. New columns and the `audit_log` table are added automatically at startup.
+- **Settings is admin-only** now, next to the new **Audit Log** page.
+- **Test SSH key.** The Docker integration tests used to ship a committed private key (`tests/docker/keys/id_ed25519_valid`). It is now generated at test time and git-ignored. The old key is still in git history; it was only ever trusted by the throwaway test container, so no action is needed unless you reused it elsewhere.
 
 ## Testing
 

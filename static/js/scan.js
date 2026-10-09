@@ -282,9 +282,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function finishScan(scanId, status) {
-        const failed = status === 'failed';
+        const failed = status === 'failed' || status === 'interrupted';
         if (scanProgressTitle) {
-            scanProgressTitle.innerHTML = failed
+            scanProgressTitle.innerHTML = status === 'interrupted'
+                ? '<i class="fas fa-times-circle text-danger me-2"></i> Scan Interrupted'
+                : failed
                 ? '<i class="fas fa-times-circle text-danger me-2"></i> Scan Failed'
                 : '<i class="fas fa-check-circle text-success me-2"></i> Scan Completed';
         }
@@ -292,7 +294,10 @@ document.addEventListener('DOMContentLoaded', function() {
             scanProgressBar.classList.remove('progress-bar-animated');
             scanProgressBar.classList.add(failed ? 'bg-danger' : 'bg-success');
         }
-        addActivity(failed ? 'Scan finished: every host failed or the scan crashed.' : 'Scan completed.', failed ? 'danger' : 'success');
+        const message = status === 'interrupted'
+            ? 'Scan interrupted: the application restarted while it was running.'
+            : failed ? 'Scan finished: every host failed or the scan crashed.' : 'Scan completed.';
+        addActivity(message, failed ? 'danger' : 'success');
         if (viewResultsLink) {
             viewResultsLink.setAttribute('href', `/results?scan_id=${encodeURIComponent(scanId)}`);
             viewResultsLink.classList.remove('d-none');
@@ -319,7 +324,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (completedIPsElement) completedIPsElement.textContent = completed;
                 if (remainingIPsElement) remainingIPsElement.textContent = Math.max(0, total - completed);
 
-                if (data.status === 'completed' || data.status === 'failed') {
+                if (['completed', 'failed', 'interrupted'].includes(data.status)) {
                     if (scanProgressBar) scanProgressBar.style.width = '100%';
                     finishScan(scanId, data.status);
                     return;

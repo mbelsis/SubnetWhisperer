@@ -73,10 +73,10 @@ The containers expose SSH to the host on:
 - `127.0.0.1:2222` for password auth
 - `127.0.0.1:2223` for key auth
 
-The key-auth test uses:
-
-- [tests/docker/keys/id_ed25519_valid](docker/keys/id_ed25519_valid)
-- [tests/docker/keys/id_ed25519_valid.pub](docker/keys/id_ed25519_valid.pub)
+The key-auth test uses a throwaway Ed25519 key pair, `tests/docker/keys/id_ed25519_valid`
+and `id_ed25519_valid.pub`. It is generated on the first run (before the containers are
+built) and is git-ignored, so no private key is committed. Delete both files and rebuild the
+containers (`docker compose -f tests/docker-compose.integration.yml build`) to rotate it.
 
 The test suite creates an isolated SQLite database just for the run and removes it afterward. It does not use the normal application database for its assertions.
 

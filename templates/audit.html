@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+
+{% block title %}Audit Log{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <h1><i class="fas fa-clipboard-list me-2"></i> Audit Log</h1>
+        <p class="lead">Security-relevant actions: sign-ins, scans, exports and changes to users, credentials, templates and schedules</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <form method="GET" action="{{ url_for('audit_log') }}" class="row g-2 align-items-center">
+            <div class="col-auto">
+                <label for="action" class="col-form-label">Action starts with</label>
+            </div>
+            <div class="col-auto">
+                <input type="text" id="action" name="action" class="form-control form-control-sm"
+                       value="{{ action }}" placeholder="e.g. auth. or scan.start">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+                {% if action %}<a href="{{ url_for('audit_log') }}" class="btn btn-sm btn-outline-secondary">Clear</a>{% endif %}
+            </div>
+        </form>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-striped mb-0">
+                <thead>
+                    <tr>
+                        <th>Time (UTC)</th>
+                        <th>User</th>
+                        <th>Source IP</th>
+                        <th>Action</th>
+                        <th>Outcome</th>
+                        <th>Target</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in entries %}
+                    <tr>
+                        <td class="text-nowrap">{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') if e.created_at else '' }}</td>
+                        <td>{{ e.username or 'system' }}</td>
+                        <td>{{ e.source_ip or '' }}</td>
+                        <td><code>{{ e.action }}</code></td>
+                        <td>
+                            {% if e.outcome == 'success' %}
+                            <span class="badge bg-success">success</span>
+                            {% elif e.outcome == 'denied' %}
+                            <span class="badge bg-warning text-dark">denied</span>
+                            {% else %}
+                            <span class="badge bg-danger">{{ e.outcome }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ e.target or '' }}</td>
+                        <td class="small">{{ e.details or '' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="7" class="text-center text-muted py-4">No audit entries</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% if pagination.pages > 1 %}
+    <div class="card-footer d-flex justify-content-between align-items-center">
+        <small class="text-muted">Page {{ pagination.page }} of {{ pagination.pages }} ({{ pagination.total }} entries)</small>
+        <div class="btn-group btn-group-sm">
+            {% if pagination.has_prev %}
+            <a class="btn btn-outline-secondary" href="{{ url_for('audit_log', page=pagination.prev_num, action=action or None) }}">Newer</a>
+            {% endif %}
+            {% if pagination.has_next %}
+            <a class="btn btn-outline-secondary" href="{{ url_for('audit_log', page=pagination.next_num, action=action or None) }}">Older</a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -7,14 +7,14 @@ import shlex
 import socket
 import logging
 import threading
-from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
 import paramiko
 from paramiko.hostkeys import HostKeys, HostKeyEntry
 
 from app import app, db
-from models import ScanResult, ScanSession, CredentialSet
+from models import ScanResult, ScanSession, CredentialSet, utcnow
+from subnet_utils import parse_network_list, ip_in_networks
 from encryption_utils import decrypt_data, DecryptionError
 from security_utils import (
     validate_commands_list, mask_sensitive_data, mask_command_output, redact_literal
@@ -422,6 +422,8 @@ def _credential_to_dict(cred):
         'private_key_passphrase': _decrypt_field(
             getattr(cred, 'private_key_passphrase_encrypted', None), 'key passphrase', errors),
         'sudo_password': _decrypt_field(cred.sudo_password_encrypted, 'sudo password', errors),
+        # Hosts this credential may be sent to; None = any host
+        'allowed_networks': parse_network_list(cred.allowed_subnets) if cred.allowed_subnets else None,
     }
     data['error'] = "; ".join(errors) if errors else None
     return data
@@ -463,6 +465,10 @@ def _try_connect(ip, port, attempts, auth_errors):
         label = f"user {user}" + (f" (credential set {cred['id']})" if cred.get('id') else "")
         auth_type = cred.get('auth_type') or 'password'
 
+        allowed = cred.get('allowed_networks')
+        if allowed is not None and not ip_in_networks(ip, allowed):
+            auth_errors.append(f"Skipped {label}: credential is not allowed for {ip}")
+            continue
         if cred.get('error') and not (cred.get('password') if auth_type == 'password' else cred.get('private_key')):
             auth_errors.append(f"Skipped {label}: {cred['error']}")
             continue
@@ -504,7 +510,8 @@ def _try_connect(ip, port, attempts, auth_errors):
 # Per-host scan
 # ---------------------------------------------------------------------------
 
-def _scan_host(ip, port, attempts, sudo_password, commands, collect_info, collect_detailed_info):
+def _scan_host(ip, port, attempts, sudo_password, commands, collect_info, collect_detailed_info,
+               allowed_commands=None):
     """Do all network I/O for one host. Returns a dict of ScanResult fields."""
     fields = {'status_code': 'failed', 'ssh_status': False, 'sudo_status': False,
               'command_status': False, 'command_output': None, 'server_info': None,
@@ -545,7 +552,7 @@ def _scan_host(ip, port, attempts, sudo_password, commands, collect_info, collec
 
         if commands:
 
-            _, validation = validate_commands_list(commands)
+            _, validation = validate_commands_list(commands, allowed_commands)
             command_output = []
             all_ok = True
             for cmd, (is_safe, reason) in zip(commands, validation):
@@ -612,7 +619,7 @@ def _scan_host(ip, port, attempts, sudo_password, commands, collect_info, collec
 def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_password=None,
                          commands=None, collect_info=False, collect_detailed_info=False,
                          scan_session_id=None, credential_sets=None, port=22,
-                         credential_set_ids=None, private_key_passphrase=None):
+                         credential_set_ids=None, private_key_passphrase=None, allowed_commands=None):
     """
     Scan one host: connect, run commands, collect info, and store a ScanResult.
 
@@ -622,6 +629,7 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_pas
             priority, error), tried before username/password/private_key.
         credential_set_ids: optional list of CredentialSet ids; they are
             loaded and decrypted here, inside this thread's app context.
+        allowed_commands: approved command lines (COMMAND_SANITIZATION=allowlist).
 
     Returns a dict with the stored result fields (including 'status_code').
     """
@@ -650,7 +658,8 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_pas
     try:
         fields = _scan_host(ip, port, _attempt_list(username, password, private_key, credentials,
                                                     private_key_passphrase),
-                            sudo_password, commands, collect_info, collect_detailed_info)
+                            sudo_password, commands, collect_info, collect_detailed_info,
+                            allowed_commands)
     except Exception as e:  # defensive: _scan_host already catches errors
         fields = {'status_code': 'failed', 'error_message': f"Error: {mask_sensitive_data(str(e))}"}
     if load_error and fields.get('status_code') != 'success':
@@ -670,7 +679,7 @@ def execute_ssh_commands(ip, username, password=None, private_key=None, sudo_pas
 def start_scan_session(scan_session_id, ip_addresses, username, password=None, private_key=None,
                        commands=None, collect_server_info=False, collect_detailed_info=False,
                        sudo_password=None, credential_set_ids=None, concurrency=10, port=22,
-                       private_key_passphrase=None):
+                       private_key_passphrase=None, allowed_commands=None):
     """
     Start a scan in a background thread and return the started threading.Thread.
 
@@ -686,6 +695,7 @@ def start_scan_session(scan_session_id, ip_addresses, username, password=None, p
     concurrency = max(1, min(concurrency, MAX_CONCURRENCY))
     ips = list(ip_addresses or [])
     cred_ids = [int(i) for i in credential_set_ids] if credential_set_ids else None
+    allowed_commands = frozenset(allowed_commands) if allowed_commands is not None else None
     do_collect = bool(collect_server_info)
 
     def scan_worker():
@@ -706,7 +716,8 @@ def start_scan_session(scan_session_id, ip_addresses, username, password=None, p
                             execute_ssh_commands, ip, username, password, private_key,
                             sudo_password, commands, do_collect, collect_detailed_info,
                             scan_session_id, None, port, cred_ids,
-                            private_key_passphrase=private_key_passphrase))
+                            private_key_passphrase=private_key_passphrase,
+                            allowed_commands=allowed_commands))
 
                 submit_more()
                 while pending:
@@ -730,7 +741,7 @@ def start_scan_session(scan_session_id, ip_addresses, username, password=None, p
                     scan_session = db.session.get(ScanSession, scan_session_id)
                     if scan_session:
                         scan_session.status = status
-                        scan_session.completed_at = datetime.utcnow()
+                        scan_session.completed_at = utcnow()
                         db.session.commit()
             except Exception as e:
                 logger.error("Could not update scan session %s status: %s", scan_session_id, e)
@@ -738,3 +749,29 @@ def start_scan_session(scan_session_id, ip_addresses, username, password=None, p
     scan_thread = threading.Thread(target=scan_worker, name=f"scan-{scan_session_id}", daemon=True)
     scan_thread.start()
     return scan_thread
+
+
+def recover_interrupted_scans():
+    """Mark scans left 'running' by a previous process as 'interrupted'.
+
+    Scans run in daemon threads, so a restart or crash kills them without a
+    final status. Must be called inside an app context at startup, before any
+    new scan can start in this process.
+    """
+    stale = ScanSession.query.filter_by(status='running').all()
+    if not stale:
+        return 0
+    now = utcnow()
+    stale_ids = [s.id for s in stale]
+    for scan_session in stale:
+        scan_session.status = 'interrupted'
+        scan_session.completed_at = scan_session.completed_at or now
+    ScanResult.query.filter(ScanResult.scan_session_id.in_(stale_ids),
+                            ScanResult.status_code == 'pending').update(
+        {ScanResult.status_code: 'failed',
+         ScanResult.error_message: 'Scan was interrupted (application restarted)'},
+        synchronize_session=False)
+    db.session.commit()
+    logger.warning("Marked %d scan(s) left running by a previous process as interrupted: %s",
+                   len(stale_ids), stale_ids)
+    return len(stale_ids)

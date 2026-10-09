@@ -97,15 +97,16 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('exportCSV').addEventListener('click', function() {
             if (!currentScanData) return;
             
-            const csvContent = convertToCSV(currentScanData);
-            downloadFile(`scan_results_${document.getElementById('currentScanId').textContent}.csv`, csvContent, 'text/csv');
+            const scanId = document.getElementById('currentScanId').textContent;
+            window.location.href = `/scan_results/${encodeURIComponent(scanId)}/export/csv`;
         });
-        
+
         document.getElementById('exportJSON').addEventListener('click', function() {
             if (!currentScanData) return;
-            
-            const jsonContent = JSON.stringify(currentScanData, null, 2);
-            downloadFile(`scan_results_${document.getElementById('currentScanId').textContent}.json`, jsonContent, 'application/json');
+
+            // The server export includes command output and server info
+            const scanId = document.getElementById('currentScanId').textContent;
+            window.location.href = `/scan_results/${encodeURIComponent(scanId)}/export/json`;
         });
         
         document.getElementById('exportPDF').addEventListener('click', function() {
@@ -428,13 +429,27 @@ document.addEventListener('DOMContentLoaded', function() {
         $.fn.dataTable.ext.search.pop();
     }
     
-    // Show result details
+    // Show result details (the result list has no output; fetch the full record)
     function showResultDetails(resultId) {
         if (!currentScanData) return;
-        
-        const result = currentScanData.find(r => r.id === parseInt(resultId));
-        if (!result) return;
-        
+
+        const summary = currentScanData.find(r => r.id === parseInt(resultId));
+        if (!summary) return;
+
+        apiFetch(`/scan_results/${encodeURIComponent(summary.scan_session_id)}/result/${encodeURIComponent(summary.id)}`)
+            .then(({ ok, data }) => {
+                if (!ok) {
+                    throw new Error(data.error || 'Failed to load result details');
+                }
+                renderResultDetails(data);
+            })
+            .catch(error => {
+                console.error('Error loading result details:', error);
+                showToast(error.message || 'Failed to load result details', 'Error', 'danger');
+            });
+    }
+
+    function renderResultDetails(result) {
         document.getElementById('detailsIpAddress').textContent = result.ip_address;
         
         // Populate command output (may arrive as a JSON string or as a parsed list)
@@ -943,71 +958,5 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!time) return 'N/A';
         return time < 1 ? `${Math.round(time * 1000)}ms` : `${time.toFixed(2)}s`;
     }
-    
-    // Quote a CSV cell and neutralise spreadsheet formulas (=, +, -, @, tab, CR)
-    function csvCell(value) {
-        let str = value === null || value === undefined ? '' : String(value);
-        if (/^[=+\-@\t\r]/.test(str)) {
-            str = "'" + str;
-        }
-        return `"${str.replace(/"/g, '""')}"`;
-    }
 
-    // Convert results to CSV format
-    function convertToCSV(results) {
-        if (!results || results.length === 0) return '';
-        
-        // Define CSV headers
-        const headers = [
-            'IP Address',
-            'Status',
-            'SSH Status',
-            'Sudo Status',
-            'Command Status',
-            'Execution Time (s)',
-            'Error Message',
-            'Created At'
-        ];
-        
-        // Create CSV content
-        let csvContent = headers.join(',') + '\n';
-        
-        // Add data rows
-        results.forEach(result => {
-            const createdAt = parseServerDate(result.created_at);
-            const row = [
-                csvCell(result.ip_address),
-                csvCell(result.status_code),
-                result.ssh_status ? 'Yes' : 'No',
-                result.sudo_status ? 'Yes' : 'No',
-                result.command_status ? 'Yes' : 'No',
-                result.execution_time || 'N/A',
-                csvCell(result.error_message || ''),
-                createdAt ? createdAt.toISOString() : ''
-            ];
-            
-            csvContent += row.join(',') + '\n';
-        });
-        
-        return csvContent;
-    }
-    
-    // Download file helper
-    function downloadFile(filename, content, contentType) {
-        const blob = new Blob([content], { type: contentType });
-        const url = URL.createObjectURL(blob);
-        
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.style.display = 'none';
-        
-        document.body.appendChild(a);
-        a.click();
-        
-        setTimeout(() => {
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }, 100);
-    }
 });

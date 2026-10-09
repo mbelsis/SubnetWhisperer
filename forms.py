@@ -1,8 +1,8 @@
 from flask_wtf import FlaskForm
 from wtforms import StringField, TextAreaField, SelectField, BooleanField, IntegerField, PasswordField, FileField, DateTimeField, HiddenField
 from wtforms.validators import DataRequired, Optional, NumberRange, ValidationError
-from datetime import datetime
-from models import ScheduleFrequency
+from models import ScheduleFrequency, utcnow
+from ssh_utils import MAX_CONCURRENCY
 
 class ScanForm(FlaskForm):
     """Form for initiating a subnet scan"""
@@ -48,7 +48,7 @@ class ScanForm(FlaskForm):
     collect_detailed_info = BooleanField('Collect Detailed Server Profile', default=False,
                                        description='Collect comprehensive server information including network cards, IP addresses, DNS configuration, and running services')
     
-    concurrency = IntegerField('Concurrency', validators=[NumberRange(min=1, max=100)], 
+    concurrency = IntegerField('Concurrency', validators=[NumberRange(min=1, max=MAX_CONCURRENCY)], 
                               default=10,
                               description='Number of concurrent SSH connections')
                               
@@ -133,7 +133,7 @@ class ScheduledScanForm(FlaskForm):
     collect_detailed_info = BooleanField('Collect Detailed Server Profile', default=False,
                                        description='Collect comprehensive server information including network cards, IP addresses, DNS configuration, and running services')
     
-    concurrency = IntegerField('Concurrency', validators=[NumberRange(min=1, max=100)], 
+    concurrency = IntegerField('Concurrency', validators=[NumberRange(min=1, max=MAX_CONCURRENCY)], 
                               default=10,
                               description='Number of concurrent SSH connections')
     
@@ -156,7 +156,7 @@ class ScheduledScanForm(FlaskForm):
     start_date = DateTimeField('Start Date (UTC)', 
                              format=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],
                              validators=[DataRequired()],
-                             default=datetime.utcnow)
+                             default=utcnow)
     
     end_date = DateTimeField('End Date (UTC, Optional)', 
                            format=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M'],
@@ -227,6 +227,10 @@ class CredentialSetForm(FlaskForm):
     priority = IntegerField('Priority', validators=[NumberRange(min=0, max=100)], 
                           default=0,
                           description='Priority for trying this credential (higher numbers = higher priority)')
+
+    allowed_subnets = TextAreaField('Allowed Subnets', validators=[Optional()],
+                                    description='CIDRs or addresses this credential may be sent to, '
+                                                'separated by commas or new lines. Blank = any host.')
     
     def validate_password(self, field):
         """Validate that password is provided when auth_type is password (only for new credentials)"""

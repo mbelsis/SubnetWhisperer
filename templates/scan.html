@@ -115,9 +115,12 @@
                                                 </div>
                                                 
                                                 <!-- Info for multiple credentials (initially hidden) -->
-                                                <div id="multiple_credentials_info" class="alert alert-info mt-3 d-none">
-                                                    <i class="fas fa-info-circle me-2"></i>
-                                                    The system will try all credential sets in order of priority (highest first).
+                                                <div id="multiple_credentials_info" class="alert alert-warning mt-3 d-none">
+                                                    <i class="fas fa-exclamation-triangle me-2"></i>
+                                                    Every credential set is tried on each host, in order of priority (highest first), until one works.
+                                                    With password authentication each host it is tried on receives that password, including an
+                                                    unknown or compromised host in the range. Credential sets with <strong>Allowed Subnets</strong>
+                                                    are only sent to hosts inside those subnets.
                                                     <div class="mt-2">
                                                         <strong>Available Credentials:</strong>
                                                         <ul class="mb-0">
@@ -192,6 +195,12 @@
                                 
                                 <div class="col-md-6 mb-3">
                                     <label for="customCommands" class="form-label">Custom Commands</label>
+                                    {% if allowlist_mode %}
+                                    <div class="alert alert-info py-2 small">
+                                        <i class="fas fa-lock me-1"></i> Command allowlist is on: only command lines that appear
+                                        in a command template can run. Other commands are rejected.
+                                    </div>
+                                    {% endif %}
                                     <textarea id="customCommands" name="custom_commands" class="form-control" rows="5" 
                                               placeholder="Enter commands, one per line&#10;Example:&#10;hostname&#10;uptime&#10;df -h"></textarea>
                                 </div>
@@ -216,7 +225,7 @@
                                 
                                 <div class="col-md-2 mb-3">
                                     <label for="concurrency" class="form-label">Concurrency</label>
-                                    <input type="number" id="concurrency" name="concurrency" class="form-control" value="10" min="1" max="100">
+                                    <input type="number" id="concurrency" name="concurrency" class="form-control" value="10" min="1" max="{{ max_concurrency }}">
                                     <div class="form-text">Parallel SSH connections</div>
                                 </div>
                                 

@@ -1,10 +1,15 @@
 from app import db
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 from enum import Enum
 from flask_login import UserMixin
 import bcrypt
 import calendar
+
+
+def utcnow():
+    """Current UTC time as a naive datetime (the database stores naive UTC values)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _iso(dt):
@@ -30,7 +35,7 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(128), nullable=False)
     is_admin = db.Column(db.Boolean, default=False)
     must_change_password = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     def set_password(self, password):
         self.password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -82,8 +87,10 @@ class CredentialSet(db.Model):
     sudo_password_encrypted = db.Column(db.Text)  # For sudo commands
     description = db.Column(db.String(255))  # Optional description
     priority = db.Column(db.Integer, default=0)  # Priority order for trying credentials
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Optional CIDRs/addresses this credential may be sent to (blank = any host)
+    allowed_subnets = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
     
     # Relationships
     scan_sessions = db.relationship('ScanSession', secondary='scan_session_credentials',
@@ -100,6 +107,7 @@ class CredentialSet(db.Model):
             'has_sudo_password': bool(self.sudo_password_encrypted),
             'description': self.description,
             'priority': self.priority,
+            'allowed_subnets': self.allowed_subnets or '',
             'created_at': _iso(self.created_at),
             'updated_at': _iso(self.updated_at)
         }
@@ -124,22 +132,28 @@ class ScanSession(db.Model):
     __tablename__ = 'scan_sessions'
     
     id = db.Column(db.Integer, primary_key=True)
+    # Application user who started the scan (or owns the schedule). NULL = admins only.
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     username = db.Column(db.String(100), nullable=False)
     auth_type = db.Column(db.String(20), nullable=False, default='password')  # 'password' or 'key'
     collect_server_info = db.Column(db.Boolean, default=False)
     collect_detailed_info = db.Column(db.Boolean, default=False)  # For detailed server profiling
     total_ips = db.Column(db.Integer, default=0)  # Expected number of IPs to scan
-    status = db.Column(db.String(20), default='running')  # running, completed, failed
-    started_at = db.Column(db.DateTime, default=datetime.utcnow)
+    status = db.Column(db.String(20), default='running')  # running, completed, failed, interrupted
+    started_at = db.Column(db.DateTime, default=utcnow)
     completed_at = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     
     # Relationships
     results = db.relationship('ScanResult', backref='session', lazy=True, cascade='all, delete-orphan')
     
-    def to_dict(self):
+    def to_dict(self, counts=None):
+        """Serialize the session. counts may be passed in (see result_counts) to avoid a query."""
+        if counts is None:
+            counts = result_counts([self.id]).get(self.id, _EMPTY_COUNTS)
         return {
             'id': self.id,
+            'owner_id': self.owner_id,
             'username': self.username,
             'auth_type': self.auth_type,
             'collect_server_info': self.collect_server_info,
@@ -148,9 +162,9 @@ class ScanSession(db.Model):
             'started_at': _iso(self.started_at),
             'completed_at': _iso(self.completed_at),
             'created_at': _iso(self.created_at),
-            'success_count': sum(1 for r in self.results if r.status_code == 'success'),
-            'failed_count': sum(1 for r in self.results if r.status_code == 'failed'),
-            'total_count': len(self.results)
+            'success_count': counts['success'],
+            'failed_count': counts['failed'],
+            'total_count': counts['total'],
         }
 
 class ScanResult(db.Model):
@@ -167,10 +181,11 @@ class ScanResult(db.Model):
     server_info = db.Column(db.Text)
     error_message = db.Column(db.Text)
     execution_time = db.Column(db.Float)  # in seconds
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     
-    def to_dict(self):
-        return {
+    def to_dict(self, include_output=True):
+        """Serialize the result; include_output=False leaves out the (large) output columns."""
+        data = {
             'id': self.id,
             'scan_session_id': self.scan_session_id,
             'ip_address': self.ip_address,
@@ -178,12 +193,35 @@ class ScanResult(db.Model):
             'ssh_status': self.ssh_status,
             'sudo_status': self.sudo_status,
             'command_status': self.command_status,
-            'command_output': _load_json(self.command_output),
-            'server_info': _load_json(self.server_info),
             'error_message': self.error_message,
             'execution_time': self.execution_time,
             'created_at': _iso(self.created_at)
         }
+        if include_output:
+            data['command_output'] = _load_json(self.command_output)
+            data['server_info'] = _load_json(self.server_info)
+        return data
+
+
+_EMPTY_COUNTS = {'success': 0, 'failed': 0, 'total': 0}
+
+
+def result_counts(scan_session_ids):
+    """Return {scan_session_id: {'success', 'failed', 'total'}} using one GROUP BY query.
+
+    scan_session_ids may be a list or a SELECT of ids.
+    """
+    counts = {}
+    rows = (db.session.query(ScanResult.scan_session_id, ScanResult.status_code, db.func.count(ScanResult.id))
+            .filter(ScanResult.scan_session_id.in_(scan_session_ids))
+            .group_by(ScanResult.scan_session_id, ScanResult.status_code)
+            .all())
+    for session_id, status_code, count in rows:
+        entry = counts.setdefault(session_id, dict(_EMPTY_COUNTS))
+        entry['total'] += count
+        if status_code in ('success', 'failed'):
+            entry[status_code] += count
+    return counts
 
 class CommandTemplate(db.Model):
     __tablename__ = 'command_templates'
@@ -192,7 +230,7 @@ class CommandTemplate(db.Model):
     name = db.Column(db.String(100), nullable=False, unique=True)
     description = db.Column(db.Text)
     commands = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     
     def to_dict(self):
         return {
@@ -220,6 +258,8 @@ class ScheduledScan(db.Model):
     private_key_passphrase_encrypted = db.Column(db.Text)
     sudo_password_encrypted = db.Column(db.Text)
     port = db.Column(db.Integer, default=22)
+    # Admin who created the schedule; its scan sessions are owned by this user
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     # Optional saved credential set; when set it overrides username/password/key above
     credential_set_id = db.Column(db.Integer, db.ForeignKey('credential_sets.id'))
     
@@ -233,15 +273,15 @@ class ScheduledScan(db.Model):
     # Schedule configuration
     schedule_frequency = db.Column(db.String(20), nullable=False)
     custom_interval_minutes = db.Column(db.Integer)  # For custom frequency
-    start_date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    start_date = db.Column(db.DateTime, nullable=False, default=utcnow)
     end_date = db.Column(db.DateTime)  # Optional end date
     next_run = db.Column(db.DateTime)
     last_run = db.Column(db.DateTime)
     
     # Status
     is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
     
     # Relationships
     command_template = db.relationship('CommandTemplate', backref='scheduled_scans')
@@ -252,6 +292,7 @@ class ScheduledScan(db.Model):
     def to_dict(self):
         return {
             'id': self.id,
+            'owner_id': self.owner_id,
             'name': self.name,
             'description': self.description,
             'subnets': self.subnets,
@@ -302,7 +343,7 @@ class ScheduledScan(db.Model):
             self.next_run = None
             return None
 
-        now = now or datetime.utcnow()
+        now = now or utcnow()
         start = self.start_date or now
 
         # A schedule whose end date has passed can never run again
@@ -326,3 +367,40 @@ class ScheduledScan(db.Model):
 
         self.next_run = next_run
         return next_run
+
+
+class AuditLog(db.Model):
+    """Security audit trail: who did what, when, from where. Never stores secrets."""
+    __tablename__ = 'audit_log'
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
+    # user_id is kept as a plain integer so entries survive deletion of the user
+    user_id = db.Column(db.Integer)
+    username = db.Column(db.String(80))
+    action = db.Column(db.String(64), nullable=False, index=True)
+    target = db.Column(db.String(255))
+    details = db.Column(db.Text)
+    source_ip = db.Column(db.String(64))
+    outcome = db.Column(db.String(16), default='success')  # success, failure, denied
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'created_at': _iso(self.created_at),
+            'user_id': self.user_id,
+            'username': self.username,
+            'action': self.action,
+            'target': self.target,
+            'details': self.details,
+            'source_ip': self.source_ip,
+            'outcome': self.outcome,
+        }
+
+
+def approved_template_commands():
+    """Every command line of every command template (the allowlist in allowlist mode)."""
+    approved = set()
+    for (commands,) in db.session.query(CommandTemplate.commands).all():
+        approved.update(line.strip() for line in (commands or '').splitlines() if line.strip())
+    return approved

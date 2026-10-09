@@ -1,8 +1,12 @@
 import os
+import time
 import logging
 import secrets
+import threading
+from collections import defaultdict, deque
 from functools import wraps
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, abort
+from flask import (Flask, render_template, request, redirect, url_for, flash, jsonify, session, abort, g,
+                   make_response)
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_wtf.csrf import CSRFProtect
@@ -44,25 +48,45 @@ def _write_private_file(path, content):
         f.write(content)
 
 
+def _read_secret_file(path):
+    try:
+        with open(path, 'r') as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return None
+
+
 def _get_or_create_secret():
-    """Get session secret from env, or generate and persist one to a file."""
+    """Get session secret from env, or generate and persist one to a file.
+
+    Safe when several processes start at once: the file is created with
+    O_EXCL, and a process that loses the race uses the winner's secret.
+    """
     secret = os.environ.get("SESSION_SECRET")
     if secret:
         return secret
     secret_file = os.path.join(INSTANCE_DIR, '.secret_key')
-    try:
-        with open(secret_file, 'r') as f:
-            secret = f.read().strip()
-            if secret:
-                return secret
-    except FileNotFoundError:
-        pass
-    # File missing or empty — generate and persist a new secret
-    secret = secrets.token_hex(32)
-    if os.path.exists(secret_file):
-        os.remove(secret_file)
-    _write_private_file(secret_file, secret)
-    return secret
+    for attempt in range(20):
+        existing = _read_secret_file(secret_file)
+        if existing:
+            return existing
+        if existing == '':
+            # Another process may be writing it right now; a file that stays
+            # empty was left by an interrupted write and is replaced.
+            if attempt < 10:
+                time.sleep(0.1)
+                continue
+            try:
+                os.remove(secret_file)
+            except FileNotFoundError:
+                pass
+        try:
+            secret = secrets.token_hex(32)
+            _write_private_file(secret_file, secret)
+            return secret
+        except FileExistsError:
+            continue  # another process created it first; use theirs
+    raise RuntimeError(f"Could not read or create {secret_file}; set SESSION_SECRET")
 
 
 def _database_uri():
@@ -75,6 +99,13 @@ def _database_uri():
 
 
 app.secret_key = _get_or_create_secret()
+
+# Behind a reverse proxy, trust this many X-Forwarded-* hops so request.remote_addr
+# (used for login throttling and the audit log) is the real client address.
+_proxy_hops = int(os.environ.get("TRUST_PROXY_HOPS", "0") or 0)
+if _proxy_hops > 0:
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=_proxy_hops, x_proto=_proxy_hops, x_host=_proxy_hops)
 
 # Configure database
 app.config["SQLALCHEMY_DATABASE_URI"] = _database_uri()
@@ -135,9 +166,40 @@ def _create_initial_admin():
                     "a password change is required at first login.")
 
 
+audit_logger = logging.getLogger('audit')
+_CURRENT_USER = object()
+
+
+def audit(action, target=None, details=None, outcome='success', user=_CURRENT_USER):
+    """Record a security-relevant event in the audit_log table and the 'audit' logger.
+
+    Call it after the change itself has been committed: it commits its own row.
+    Never pass secrets in details. user=None records a system action (scheduler).
+    """
+    from models import AuditLog
+    if user is _CURRENT_USER:
+        user = current_user if current_user and current_user.is_authenticated else None
+    user_id = getattr(user, 'id', None)
+    username = getattr(user, 'username', None)
+    try:
+        source_ip = request.remote_addr
+    except RuntimeError:  # outside a request (scheduler)
+        source_ip = None
+    audit_logger.info("action=%s outcome=%s user=%s ip=%s target=%s details=%s",
+                      action, outcome, username or '-', source_ip or '-', target or '-', details or '')
+    try:
+        db.session.add(AuditLog(user_id=user_id, username=username, action=action,
+                                target=(target or '')[:255] or None, details=details,
+                                source_ip=source_ip, outcome=outcome))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception("Could not write audit log entry for %s", action)
+
+
 # Import routes and models after initializing app and db
 with app.app_context():
-    from models import User, ScanResult, CommandTemplate, ScanSession, ScheduledScan, CredentialSet
+    from models import User, ScanResult, CommandTemplate, ScanSession, ScheduledScan, CredentialSet, AuditLog
     import ssh_utils
     import subnet_utils
     from forms import ScanForm, CommandTemplateForm, ScheduledScanForm
@@ -153,6 +215,120 @@ with app.app_context():
         except Exception:
             db.session.rollback()
             logger.info("Initial admin account already exists (created by another process)")
+
+    # Scans left 'running' by a previous process died with it
+    if _env_flag('RECOVER_INTERRUPTED_SCANS', default=True):
+        try:
+            ssh_utils.recover_interrupted_scans()
+        except Exception:
+            db.session.rollback()
+            logger.exception("Could not mark interrupted scans")
+
+
+# ---------------------------------------------------------------------------
+# Login throttling (in-memory; the app runs as a single process)
+# ---------------------------------------------------------------------------
+
+class LoginThrottle:
+    """Lock out a (username, client IP) pair after too many failures, and a client IP
+    after many more. Locking per pair means an attacker cannot lock the real admin
+    out from a different address."""
+
+    def __init__(self, max_failures, ip_max_failures, window_seconds):
+        self.max_failures = max_failures
+        self.ip_max_failures = ip_max_failures
+        self.window = window_seconds
+        self._failures = defaultdict(deque)
+        self._lock = threading.Lock()
+
+    def _recent(self, key, now):
+        q = self._failures.get(key)
+        if not q:
+            return 0
+        while q and q[0] <= now - self.window:
+            q.popleft()
+        if not q:
+            self._failures.pop(key, None)
+            return 0
+        return len(q)
+
+    def retry_after(self, username, ip):
+        """Seconds until a login may be attempted again (0 = allowed now)."""
+        now = time.monotonic()
+        with self._lock:
+            waits = []
+            for key, limit in (((username.lower(), ip), self.max_failures), (('*', ip), self.ip_max_failures)):
+                if self._recent(key, now) >= limit:
+                    waits.append(self._failures[key][0] + self.window - now)
+            return int(max(waits)) + 1 if waits else 0
+
+    def failure(self, username, ip):
+        now = time.monotonic()
+        with self._lock:
+            for key in ((username.lower(), ip), ('*', ip)):
+                self._failures[key].append(now)
+            # Bound memory under a spray of random usernames
+            if len(self._failures) > 10000:
+                for key in list(self._failures):
+                    self._recent(key, now)
+
+    def success(self, username, ip):
+        with self._lock:
+            self._failures.pop((username.lower(), ip), None)
+
+
+login_throttle = LoginThrottle(
+    max_failures=int(os.environ.get('LOGIN_MAX_FAILURES', '5') or 5),
+    ip_max_failures=int(os.environ.get('LOGIN_IP_MAX_FAILURES', '20') or 20),
+    window_seconds=60 * int(os.environ.get('LOGIN_LOCKOUT_MINUTES', '15') or 15),
+)
+
+# Compared against when the username does not exist, so the response time does
+# not reveal which usernames are valid.
+import bcrypt as _bcrypt  # noqa: E402
+_DUMMY_PASSWORD_HASH = _bcrypt.hashpw(b'not-a-real-password', _bcrypt.gensalt())
+
+
+# ---------------------------------------------------------------------------
+# Security headers
+# ---------------------------------------------------------------------------
+
+_CDN_SCRIPTS = "https://cdn.jsdelivr.net https://code.jquery.com https://cdn.datatables.net"
+_CDN_STYLES = "https://cdn.replit.com https://cdnjs.cloudflare.com https://cdn.datatables.net"
+
+
+@app.before_request
+def _set_csp_nonce():
+    g.csp_nonce = secrets.token_urlsafe(16)
+
+
+@app.context_processor
+def _inject_csp_nonce():
+    return {'csp_nonce': lambda: getattr(g, 'csp_nonce', '')}
+
+
+@app.after_request
+def _security_headers(response):
+    nonce = getattr(g, 'csp_nonce', '')
+    response.headers.setdefault('Content-Security-Policy', (
+        "default-src 'self'; "
+        f"script-src 'self' 'nonce-{nonce}' {_CDN_SCRIPTS}; "
+        # Inline style attributes are used by the templates and DataTables
+        f"style-src 'self' 'unsafe-inline' {_CDN_STYLES}; "
+        "font-src 'self' data: https://cdnjs.cloudflare.com; "
+        "img-src 'self' data: https://cdn.datatables.net; "
+        "connect-src 'self'; object-src 'none'; base-uri 'self'; "
+        "form-action 'self'; frame-ancestors 'none'"))
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'DENY')
+    response.headers.setdefault('Referrer-Policy', 'same-origin')
+    response.headers.setdefault('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+    if app.config['SESSION_COOKIE_SECURE']:
+        response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+    # Scan results and credentials pages must not be kept in shared caches
+    if request.endpoint != 'static':
+        response.headers.setdefault('Cache-Control', 'no-store')
+    return response
 
 
 def _wants_json():
@@ -245,9 +421,20 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
+        client_ip = request.remote_addr or 'unknown'
+        wait = login_throttle.retry_after(username, client_ip)
+        if wait:
+            audit('auth.login', f"user:{username}"[:255], outcome='denied', user=None,
+                  details='locked out after repeated failures')
+            flash(f'Too many failed login attempts. Try again in {(wait + 59) // 60} minute(s).', 'danger')
+            return render_template('login.html'), 429
         user = User.query.filter_by(username=username).first()
+        if user is None:
+            _bcrypt.checkpw(password.encode('utf-8'), _DUMMY_PASSWORD_HASH)
         if user and user.check_password(password):
+            login_throttle.success(username, client_ip)
             login_user(user)
+            audit('auth.login', f"user:{user.username}")
             if user.must_change_password:
                 return redirect(url_for('change_password'))
             next_page = request.args.get('next')
@@ -255,13 +442,16 @@ def login():
             if not _is_safe_redirect(next_page):
                 next_page = None
             return redirect(next_page or url_for('index'))
+        login_throttle.failure(username, client_ip)
         logger.warning("Failed login attempt for username %r from %s", username, request.remote_addr)
+        audit('auth.login', f"user:{username}"[:255], outcome='failure', user=None)
         flash('Invalid username or password.', 'danger')
     return render_template('login.html')
 
 @app.route('/logout', methods=['POST'])
 @login_required
 def logout():
+    audit('auth.logout', f"user:{current_user.username}")
     logout_user()
     flash('You have been logged out.', 'info')
     return redirect(url_for('login'))
@@ -297,14 +487,15 @@ def create_user():
     user.set_password(password)
     db.session.add(user)
     db.session.commit()
+    audit('user.create', f"user:{user.id}", details=f"username={username} admin={is_admin}")
     flash(f'User "{username}" created successfully. They must change the password at first login.', 'success')
     return redirect(url_for('user_management'))
 
 @app.route('/users/<int:user_id>/delete', methods=['POST'])
 @admin_required
 def delete_user(user_id):
-    from models import User
-    user = User.query.get_or_404(user_id)
+    from models import User, ScanSession, ScheduledScan
+    user = db.get_or_404(User, user_id)
     if user.id == current_user.id:
         flash('You cannot delete your own account.', 'danger')
         return redirect(url_for('user_management'))
@@ -312,8 +503,12 @@ def delete_user(user_id):
         flash('You cannot delete the last admin account.', 'danger')
         return redirect(url_for('user_management'))
     username = user.username
+    # Keep the user's scans and schedules; they become visible to admins only
+    ScanSession.query.filter_by(owner_id=user.id).update({ScanSession.owner_id: None})
+    ScheduledScan.query.filter_by(owner_id=user.id).update({ScheduledScan.owner_id: None})
     db.session.delete(user)
     db.session.commit()
+    audit('user.delete', f"user:{user_id}", details=f"username={username}")
     flash(f'User "{username}" deleted.', 'success')
     return redirect(url_for('user_management'))
 
@@ -326,6 +521,8 @@ def change_password():
         confirm_password = request.form.get('confirm_password', '')
         password_error = _validate_new_password(new_password)
         if not current_user.check_password(current_password):
+            audit('user.password_change', f"user:{current_user.id}", outcome='failure',
+                  details='current password incorrect')
             flash('Current password is incorrect.', 'danger')
         elif password_error:
             flash(password_error, 'danger')
@@ -334,12 +531,15 @@ def change_password():
         elif new_password != confirm_password:
             flash('New passwords do not match.', 'danger')
         else:
-            current_user.set_password(new_password)
-            current_user.must_change_password = False
+            user = current_user._get_current_object()
+            user.set_password(new_password)
+            user.must_change_password = False
             db.session.commit()
             _remove_initial_admin_password_file()
-            # The session token changed with the password; refresh this session
-            login_user(current_user)
+            # The session token changed with the password; refresh this session.
+            # Pass the real User, not the current_user proxy (which would then refer to itself).
+            login_user(user)
+            audit('user.password_change', f"user:{user.id}")
             flash('Password changed successfully.', 'success')
             return redirect(url_for('index'))
     return render_template('change_password.html',
@@ -350,7 +550,7 @@ def change_password():
 @admin_required
 def reset_user_password(user_id):
     from models import User
-    user = User.query.get_or_404(user_id)
+    user = db.get_or_404(User, user_id)
     new_password = request.form.get('new_password', '')
     password_error = _validate_new_password(new_password)
     if password_error:
@@ -362,8 +562,55 @@ def reset_user_password(user_id):
     db.session.commit()
     if user.id == current_user.id:
         login_user(user)
+    audit('user.password_reset', f"user:{user.id}", details=f"username={user.username}")
     flash(f'Password reset for user "{user.username}".', 'success')
     return redirect(url_for('user_management'))
+
+def _visible_scans():
+    """ScanSession query limited to what the current user may see (admins: everything)."""
+    from models import ScanSession
+    query = ScanSession.query
+    if not current_user.is_admin:
+        query = query.filter(ScanSession.owner_id == current_user.id)
+    return query
+
+
+def _get_visible_scan_or_404(scan_id):
+    """Load a scan the current user may see. Others get 404 so IDs cannot be probed."""
+    from models import ScanSession
+    scan_session = db.session.get(ScanSession, scan_id)
+    if scan_session is None or (not current_user.is_admin and scan_session.owner_id != current_user.id):
+        if _wants_json():
+            abort(make_response(jsonify({"error": "Scan not found"}), 404))
+        abort(404)
+    return scan_session
+
+
+def _command_policy_error(commands):
+    """In allowlist mode, return an error for commands that are not in a template, else None."""
+    from security_utils import is_allowlist_mode
+    from models import approved_template_commands
+    if not commands or not is_allowlist_mode():
+        return None
+    approved = approved_template_commands()
+    rejected = [c for c in commands if c.strip() not in approved]
+    if not rejected:
+        return None
+    from security_utils import mask_sensitive_data
+    sample = ', '.join(repr(mask_sensitive_data(c))[:80] for c in rejected[:3])
+    return (f"{len(rejected)} command(s) are not in an approved command template "
+            f"(COMMAND_SANITIZATION=allowlist): {sample}")
+
+
+def _scope_error(ip_addresses):
+    """Return an error if any address is outside SCAN_ALLOWED_SUBNETS, else None."""
+    from subnet_utils import out_of_scope
+    outside = out_of_scope(ip_addresses)
+    if not outside:
+        return None
+    return (f"{len(outside)} address(es) are outside the authorised scan scope "
+            f"(SCAN_ALLOWED_SUBNETS), e.g. {', '.join(outside[:5])}")
+
 
 # Routes
 @app.route('/')
@@ -386,7 +633,10 @@ def scan():
     # Populate form choices
     form.command_template.choices = [(t.id, t.name) for t in templates]
 
-    return render_template('scan.html', form=form, templates=templates, credential_sets=credential_sets)
+    from security_utils import is_allowlist_mode
+    from ssh_utils import MAX_CONCURRENCY
+    return render_template('scan.html', form=form, templates=templates, credential_sets=credential_sets,
+                           allowlist_mode=is_allowlist_mode(), max_concurrency=MAX_CONCURRENCY)
 
 
 def _as_bool(value):
@@ -422,7 +672,8 @@ def _split_commands(text):
 def start_scan():
     from subnet_utils import parse_subnet_input
     from ssh_utils import start_scan_session, MAX_CONCURRENCY
-    from models import ScanSession, CommandTemplate, CredentialSet
+    from models import ScanSession, CommandTemplate, CredentialSet, approved_template_commands
+    from security_utils import is_allowlist_mode
 
     if request.is_json:
         data = request.get_json(silent=True)
@@ -522,6 +773,10 @@ def start_scan():
     if not ip_addresses:
         detail = f": {'; '.join(errors[:5])}" if errors else ""
         return _json_error(f"No valid IP addresses found{detail}")
+    scope_error = _scope_error(ip_addresses)
+    if scope_error:
+        audit('scan.start', None, outcome='denied', details=scope_error)
+        return _json_error(scope_error, 403)
 
     # Get commands
     commands = []
@@ -534,9 +789,14 @@ def start_scan():
             return _json_error("Selected command template does not exist")
         commands = _split_commands(template.commands)
     commands.extend(_split_commands(custom_commands))
+    policy_error = _command_policy_error(commands)
+    if policy_error:
+        audit('scan.start', None, outcome='denied', details=policy_error)
+        return _json_error(policy_error, 403)
 
     # Create a new scan session
     scan_session = ScanSession(
+        owner_id=current_user.id,
         username=username,
         auth_type=auth_type,
         collect_server_info=collect_server_info,
@@ -565,13 +825,19 @@ def start_scan():
             credential_set_ids=credential_set_ids,
             concurrency=concurrency,
             port=port,
-            private_key_passphrase=private_key_passphrase
+            private_key_passphrase=private_key_passphrase,
+            allowed_commands=approved_template_commands() if is_allowlist_mode() else None
         )
     except Exception:
         logger.exception("Failed to start scan %s", scan_id)
         scan_session.status = 'failed'
         db.session.commit()
         return _json_error("Failed to start the scan", 500)
+
+    audit('scan.start', f"scan:{scan_id}", details=(
+        f"{len(ip_addresses)} host(s), port {port}, {len(commands)} command(s), "
+        f"auth={'credential_sets:' + ','.join(map(str, credential_set_ids)) if credential_set_ids else auth_type}, "
+        f"ssh_user={username}, sudo_password={'yes' if sudo_password else 'no'}"))
 
     message = f"Scan started with {len(ip_addresses)} IP addresses"
     if errors:
@@ -595,6 +861,9 @@ def validate_subnets():
         ip_addresses = parse_subnet_input(subnets, errors=errors) if isinstance(subnets, str) else []
     except ValueError as e:
         return jsonify({"valid": False, "count": 0, "sample": [], "errors": [str(e)], "limit": MAX_SCAN_IPS})
+    scope_error = _scope_error(ip_addresses)
+    if scope_error:
+        errors.insert(0, scope_error)
     return jsonify({
         "valid": bool(ip_addresses) and not errors,
         "count": len(ip_addresses),
@@ -631,9 +900,9 @@ def parse_csv():
 @app.route('/scan_status/<int:scan_id>')
 @login_required
 def scan_status(scan_id):
-    from models import ScanSession, ScanResult
+    from models import ScanResult
 
-    scan_session = ScanSession.query.get_or_404(scan_id)
+    scan_session = _get_visible_scan_or_404(scan_id)
     total_ips = scan_session.total_ips or 0
     completed_ips = ScanResult.query.filter(
         ScanResult.scan_session_id == scan_id,
@@ -651,37 +920,61 @@ def scan_status(scan_id):
 @app.route('/results')
 @login_required
 def results():
-    from models import ScanSession
+    from models import ScanSession, result_counts
 
-    scan_sessions = ScanSession.query.order_by(ScanSession.created_at.desc()).all()
+    visible = _visible_scans()
+    scan_sessions = visible.order_by(ScanSession.created_at.desc()).all()
+    counts = result_counts(visible.with_entities(ScanSession.id).scalar_subquery()) if scan_sessions else {}
     current_scan_id = session.get('current_scan_id')
 
-    return render_template('results.html', scan_sessions=scan_sessions, current_scan_id=current_scan_id)
+    return render_template('results.html', scan_sessions=scan_sessions, counts=counts,
+                           current_scan_id=current_scan_id)
 
 @app.route('/scan_results/<int:scan_id>')
 @login_required
 def scan_results(scan_id):
-    from models import ScanResult, ScanSession
+    """Result list for one scan, without the large output columns.
 
-    scan_session = ScanSession.query.get_or_404(scan_id)
-    results = ScanResult.query.filter_by(scan_session_id=scan_id).all()
+    Command output and server info for one host come from scan_result_detail.
+    """
+    from sqlalchemy.orm import load_only
+    from models import ScanResult, result_counts
 
-    # Calculate summary statistics
-    total = len(results)
-    success_count = sum(1 for r in results if r.status_code == 'success')
-    failed_count = sum(1 for r in results if r.status_code == 'failed')
+    scan_session = _get_visible_scan_or_404(scan_id)
+    # Load only the light columns; command_output/server_info can be megabytes per host
+    results = (ScanResult.query.filter_by(scan_session_id=scan_id)
+               .options(load_only(ScanResult.id, ScanResult.scan_session_id, ScanResult.ip_address,
+                                  ScanResult.status_code, ScanResult.ssh_status, ScanResult.sudo_status,
+                                  ScanResult.command_status, ScanResult.error_message,
+                                  ScanResult.execution_time, ScanResult.created_at))
+               .all())
+    counts = result_counts([scan_id]).get(scan_id, {'success': 0, 'failed': 0, 'total': 0})
+    total = counts['total']
 
     return jsonify({
         "scan_id": scan_id,
-        "session": scan_session.to_dict(),
-        "results": [r.to_dict() for r in results],
+        "session": scan_session.to_dict(counts=counts),
+        "results": [r.to_dict(include_output=False) for r in results],
         "summary": {
             "total": total,
-            "success": success_count,
-            "failed": failed_count,
-            "success_rate": (success_count / total * 100) if total > 0 else 0
+            "success": counts['success'],
+            "failed": counts['failed'],
+            "success_rate": (counts['success'] / total * 100) if total > 0 else 0
         }
     })
+
+
+@app.route('/scan_results/<int:scan_id>/result/<int:result_id>')
+@login_required
+def scan_result_detail(scan_id, result_id):
+    """Full result for one host, including command output and server info."""
+    from models import ScanResult
+
+    _get_visible_scan_or_404(scan_id)
+    result = db.session.get(ScanResult, result_id)
+    if result is None or result.scan_session_id != scan_id:
+        return _json_error("Result not found", 404)
+    return jsonify(result.to_dict())
 
 @app.route('/api/delete_scan/<int:scan_id>', methods=['DELETE'])
 @admin_required
@@ -699,6 +992,7 @@ def delete_scan(scan_id):
         scan_session_credentials.c.scan_session_id == scan_id))
     db.session.delete(scan_session)
     db.session.commit()
+    audit('scan.delete', f"scan:{scan_id}")
     if session.get('current_scan_id') == scan_id:
         session.pop('current_scan_id', None)
     return jsonify({"success": True})
@@ -721,13 +1015,14 @@ def _fmt_dt(dt):
 def _build_pdf_report(scan_id, scan_session, results, success_count, failed_count):
     """Render a one-page PDF summary using matplotlib's object API (thread-safe, no pyplot)."""
     from io import BytesIO
-    from datetime import datetime
     from matplotlib.figure import Figure
+    from models import utcnow
 
     fig = Figure(figsize=(11, 8))
     fig.suptitle(f'Subnet Whisperer Scan Results (ID: {scan_id})', fontsize=16)
-    fig.text(0.1, 0.92, f'Generated: {_fmt_dt(datetime.utcnow())}')
-    fig.text(0.1, 0.90, f'Username: {scan_session.username}')
+    fig.text(0.1, 0.92, f'Generated: {_fmt_dt(utcnow())}')
+    # parse_math=False: a '$' in a username must not be parsed as mathtext
+    fig.text(0.1, 0.90, f'Username: {scan_session.username}', parse_math=False)
     fig.text(0.1, 0.88, f'Authentication: {scan_session.auth_type}')
     fig.text(0.1, 0.86, f'Started: {_fmt_dt(scan_session.started_at) or "N/A"}')
     fig.text(0.1, 0.84, f'Completed: {_fmt_dt(scan_session.completed_at) or "N/A"}')
@@ -781,23 +1076,22 @@ def _build_pdf_report(scan_id, scan_session, results, success_count, failed_coun
 @login_required
 def export_results(scan_id, format):
     """Export scan results in various formats (CSV, JSON, PDF)"""
-    from datetime import datetime
     import csv
     import json
     from io import StringIO
-    from flask import make_response
-    from models import ScanResult, ScanSession
+    from models import ScanResult, utcnow
 
     format = format.lower()
     if format not in ('csv', 'json', 'pdf'):
         return _json_error('Unsupported export format')
 
-    scan_session = ScanSession.query.get_or_404(scan_id)
+    scan_session = _get_visible_scan_or_404(scan_id)
     results = ScanResult.query.filter_by(scan_session_id=scan_id).all()
+    audit('scan.export', f"scan:{scan_id}", details=f"format={format}")
 
     try:
         # Generate timestamp for filename
-        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        timestamp = utcnow().strftime('%Y%m%d_%H%M%S')
         filename = f"subnet_whisperer_results_{scan_id}_{timestamp}"
 
         # Calculate summary statistics
@@ -882,6 +1176,7 @@ def templates():
                 )
                 db.session.add(template)
                 db.session.commit()
+                audit('template.create', f"template:{template.id}", details=f"name={name}")
                 flash('Template created successfully!', 'success')
                 return redirect(url_for('templates'))
 
@@ -893,7 +1188,7 @@ def templates():
 def get_template(template_id):
     from models import CommandTemplate
 
-    template = CommandTemplate.query.get_or_404(template_id)
+    template = db.get_or_404(CommandTemplate, template_id)
     return jsonify(template.to_dict())
 
 @app.route('/template/<int:template_id>', methods=['PUT'])
@@ -919,6 +1214,7 @@ def update_template(template_id):
     template.description = data.get('description') or ''
     template.commands = commands
     db.session.commit()
+    audit('template.update', f"template:{template_id}", details=f"name={name}")
     return jsonify({"success": True, "template": template.to_dict()})
 
 @app.route('/template/<int:template_id>', methods=['DELETE'])
@@ -932,8 +1228,10 @@ def delete_template(template_id):
     # Detach schedules that referenced this template
     ScheduledScan.query.filter_by(command_template_id=template_id).update(
         {ScheduledScan.command_template_id: None})
+    name = template.name
     db.session.delete(template)
     db.session.commit()
+    audit('template.delete', f"template:{template_id}", details=f"name={name}")
     return jsonify({"success": True})
 
 @app.route('/schedules')
@@ -978,9 +1276,8 @@ def _populate_schedule_choices(form):
 
 def _apply_schedule_form(scheduled_scan, form, is_new):
     """Copy form data onto a ScheduledScan, encrypting secrets. Returns an error message or None."""
-    from datetime import datetime
     from encryption_utils import encrypt_data
-    from models import CredentialSet
+    from models import CredentialSet, utcnow
 
     credential_set = None
     if form.credential_set_id.data:
@@ -1035,18 +1332,34 @@ def _apply_schedule_form(scheduled_scan, form, is_new):
         scheduled_scan.private_key_encrypted = None
         scheduled_scan.private_key_passphrase_encrypted = None
 
-    if form.sudo_password.data and not keep_sudo:
-        scheduled_scan.sudo_password_encrypted = encrypt_data(form.sudo_password.data)
+    if not keep_sudo:
+        # Unchecking "keep" with a blank field clears the stored sudo password
+        scheduled_scan.sudo_password_encrypted = (
+            encrypt_data(form.sudo_password.data) if form.sudo_password.data else None)
 
     # Validate the subnet list now rather than failing at run time
     from subnet_utils import parse_subnet_input
     try:
-        if not parse_subnet_input(form.subnets.data or ''):
+        ip_addresses = parse_subnet_input(form.subnets.data or '')
+        if not ip_addresses:
             return 'No valid IP addresses found in the subnets field.'
     except ValueError as e:
         return str(e)
+    scope_error = _scope_error(ip_addresses)
+    if scope_error:
+        return scope_error
 
-    if form.end_date.data and form.end_date.data <= datetime.utcnow() and form.is_active.data:
+    commands = []
+    if scheduled_scan.command_template_id:
+        from models import CommandTemplate
+        template = db.session.get(CommandTemplate, scheduled_scan.command_template_id)
+        commands = _split_commands(template.commands if template else '')
+    commands.extend(_split_commands(form.custom_commands.data))
+    policy_error = _command_policy_error(commands)
+    if policy_error:
+        return policy_error
+
+    if form.end_date.data and form.end_date.data <= utcnow() and form.is_active.data:
         return 'End date is in the past; the schedule would never run.'
 
     scheduled_scan.last_run = None if is_new else scheduled_scan.last_run
@@ -1058,26 +1371,28 @@ def _apply_schedule_form(scheduled_scan, form, is_new):
 @admin_required
 def create_schedule():
     from forms import ScheduledScanForm
-    from models import ScheduledScan
-    from datetime import datetime
+    from models import ScheduledScan, utcnow
 
     form = ScheduledScanForm()
     _populate_schedule_choices(form)
 
     if form.validate_on_submit():
-        scheduled_scan = ScheduledScan()
+        scheduled_scan = ScheduledScan(owner_id=current_user.id)
         error = _apply_schedule_form(scheduled_scan, form, is_new=True)
         if error:
             flash(error, 'danger')
         else:
             db.session.add(scheduled_scan)
             db.session.commit()
+            audit('schedule.create', f"schedule:{scheduled_scan.id}",
+                  details=f"name={scheduled_scan.name} frequency={scheduled_scan.schedule_frequency} "
+                          f"credential_set={scheduled_scan.credential_set_id}")
             flash('Scheduled scan created successfully!', 'success')
             return redirect(url_for('schedules'))
 
     # Set default values
     if not form.start_date.data:
-        form.start_date.data = datetime.utcnow()
+        form.start_date.data = utcnow()
 
     return render_template('schedule_form.html', form=form, schedule=None)
 
@@ -1086,7 +1401,7 @@ def create_schedule():
 def view_schedule(schedule_id):
     from models import ScheduledScan
 
-    scheduled_scan = ScheduledScan.query.get_or_404(schedule_id)
+    scheduled_scan = db.get_or_404(ScheduledScan, schedule_id)
     return render_template('schedule_detail.html', schedule=scheduled_scan)
 
 @app.route('/schedules/<int:schedule_id>/edit', methods=['GET', 'POST'])
@@ -1095,7 +1410,7 @@ def edit_schedule(schedule_id):
     from forms import ScheduledScanForm
     from models import ScheduledScan
 
-    scheduled_scan = ScheduledScan.query.get_or_404(schedule_id)
+    scheduled_scan = db.get_or_404(ScheduledScan, schedule_id)
     if request.method == 'GET':
         form = ScheduledScanForm(obj=scheduled_scan)
         # obj= maps the relationship object, not the id; set the select values explicitly
@@ -1114,6 +1429,9 @@ def edit_schedule(schedule_id):
             flash(error, 'danger')
         else:
             db.session.commit()
+            audit('schedule.update', f"schedule:{schedule_id}",
+                  details=f"name={scheduled_scan.name} active={scheduled_scan.is_active} "
+                          f"credential_set={scheduled_scan.credential_set_id}")
             flash('Scheduled scan updated successfully!', 'success')
             return redirect(url_for('schedules'))
 
@@ -1127,7 +1445,7 @@ def edit_schedule(schedule_id):
 def activate_schedule(schedule_id):
     from models import ScheduledScan
 
-    scheduled_scan = ScheduledScan.query.get_or_404(schedule_id)
+    scheduled_scan = db.get_or_404(ScheduledScan, schedule_id)
     scheduled_scan.is_active = True
     scheduled_scan.calculate_next_run()
     if not scheduled_scan.is_active:
@@ -1137,6 +1455,7 @@ def activate_schedule(schedule_id):
             "message": f"Schedule '{scheduled_scan.name}' has passed its end date; edit the end date to reactivate it"
         }), 400
     db.session.commit()
+    audit('schedule.activate', f"schedule:{schedule_id}")
 
     return jsonify({
         "success": True,
@@ -1148,10 +1467,11 @@ def activate_schedule(schedule_id):
 def deactivate_schedule(schedule_id):
     from models import ScheduledScan
 
-    scheduled_scan = ScheduledScan.query.get_or_404(schedule_id)
+    scheduled_scan = db.get_or_404(ScheduledScan, schedule_id)
     scheduled_scan.is_active = False
     scheduled_scan.next_run = None
     db.session.commit()
+    audit('schedule.deactivate', f"schedule:{schedule_id}")
 
     return jsonify({
         "success": True,
@@ -1163,12 +1483,13 @@ def deactivate_schedule(schedule_id):
 def delete_schedule(schedule_id):
     from models import ScheduledScan, scheduled_scan_sessions
 
-    scheduled_scan = ScheduledScan.query.get_or_404(schedule_id)
+    scheduled_scan = db.get_or_404(ScheduledScan, schedule_id)
     schedule_name = scheduled_scan.name
     db.session.execute(scheduled_scan_sessions.delete().where(
         scheduled_scan_sessions.c.scheduled_scan_id == schedule_id))
     db.session.delete(scheduled_scan)
     db.session.commit()
+    audit('schedule.delete', f"schedule:{schedule_id}", details=f"name={schedule_name}")
 
     return jsonify({
         "success": True,
@@ -1189,6 +1510,13 @@ def _save_credential_set(credential_set, form, is_new):
     credential_set.auth_type = auth_type
     credential_set.description = form.description.data
     credential_set.priority = form.priority.data
+
+    from subnet_utils import parse_network_list
+    subnet_errors = []
+    networks = parse_network_list(form.allowed_subnets.data, subnet_errors)
+    if subnet_errors:
+        return 'Allowed subnets: ' + '; '.join(subnet_errors[:5])
+    credential_set.allowed_subnets = ', '.join(str(n) for n in networks) or None
 
     if auth_type == 'password':
         if form.password.data:
@@ -1211,6 +1539,8 @@ def _save_credential_set(credential_set, form, is_new):
 
     if form.sudo_password.data:
         credential_set.sudo_password_encrypted = encrypt_data(form.sudo_password.data)
+    elif not is_new and request.form.get('clear_sudo_password') == 'on':
+        credential_set.sudo_password_encrypted = None
     return None
 
 
@@ -1230,11 +1560,18 @@ def credentials():
         else:
             db.session.add(credential_set)
             db.session.commit()
+            _audit_credential('credential.create', credential_set)
             flash('Credential set created successfully!', 'success')
             return redirect(url_for('credentials'))
 
     credential_sets = CredentialSet.query.order_by(CredentialSet.priority.desc()).all()
     return render_template('credentials.html', form=form, credential_sets=credential_sets)
+
+
+def _audit_credential(action, credential_set):
+    audit(action, f"credential_set:{credential_set.id}",
+          details=f"ssh_user={credential_set.username} auth={credential_set.auth_type} "
+                  f"allowed_subnets={credential_set.allowed_subnets or 'any'}")
 
 
 def _form_error_text(form):
@@ -1258,6 +1595,7 @@ def add_credential():
         else:
             db.session.add(credential_set)
             db.session.commit()
+            _audit_credential('credential.create', credential_set)
             flash('Credential set created successfully!', 'success')
     else:
         flash('Error creating credential set: ' + _form_error_text(form), 'danger')
@@ -1285,6 +1623,7 @@ def edit_credential():
             flash(error, 'danger')
         else:
             db.session.commit()
+            _audit_credential('credential.update', credential_set)
             flash('Credential set updated successfully!', 'success')
     else:
         flash('Error updating credential set: ' + _form_error_text(form), 'danger')
@@ -1313,6 +1652,7 @@ def delete_credential():
         scan_session_credentials.c.credential_set_id == credential_id))
     db.session.delete(credential_set)
     db.session.commit()
+    audit('credential.delete', f"credential_set:{credential_id}")
 
     flash('Credential set deleted successfully!', 'success')
     return redirect(url_for('credentials'))
@@ -1322,17 +1662,17 @@ def delete_credential():
 def get_credential(credential_id):
     from models import CredentialSet
 
-    credential_set = CredentialSet.query.get_or_404(credential_id)
+    credential_set = db.get_or_404(CredentialSet, credential_id)
     return jsonify(credential_set.to_dict())
 
 @app.route('/settings')
-@login_required
+@admin_required
 def settings():
     """Read-only view of the effective configuration (set through environment variables)."""
     import ssh_utils
     import subnet_utils
     import encryption_utils
-    from security_utils import _is_sanitization_enabled
+    from security_utils import sanitization_mode
     from scheduler import scheduler_service
 
     if os.environ.get('ENCRYPTION_KEY'):
@@ -1348,10 +1688,18 @@ def settings():
         'reject': 'Reject hosts that are not already in known_hosts',
         'warn': 'Accept any host key (no verification)',
     }
+    mode_labels = {
+        'allowlist': 'Allowlist: only command lines from approved templates may run',
+        'enabled': 'Enabled (denylist): shell operators and restricted commands are blocked',
+        'disabled': 'Disabled: only obviously destructive commands are blocked',
+    }
+    scope = ', '.join(str(n) for n in subnet_utils.SCAN_ALLOWED_NETWORKS) or 'Unrestricted'
     config = [
-        ('Command filter (COMMAND_SANITIZATION)',
-         'Enabled: shell operators and restricted commands are blocked' if _is_sanitization_enabled()
-         else 'Disabled: only destructive commands are blocked'),
+        ('Command policy (COMMAND_SANITIZATION)', mode_labels[sanitization_mode()]),
+        ('Authorised scan scope (SCAN_ALLOWED_SUBNETS)', scope),
+        ('Login lockout (LOGIN_MAX_FAILURES / LOGIN_LOCKOUT_MINUTES)',
+         f'{login_throttle.max_failures} failures per user and address, '
+         f'{login_throttle.ip_max_failures} per address, within {login_throttle.window // 60} minutes'),
         ('SSH host keys (SSH_HOST_KEY_POLICY)', policy_labels[policy]),
         ('Command timeout (SSH_COMMAND_TIMEOUT)', f'{ssh_utils.SSH_COMMAND_TIMEOUT} seconds'),
         ('Connection timeout (SSH_CONNECT_TIMEOUT)', f'{ssh_utils.SSH_CONNECT_TIMEOUT} seconds'),
@@ -1364,6 +1712,24 @@ def settings():
         ('Secure session cookie (SESSION_COOKIE_SECURE)', 'On' if app.config['SESSION_COOKIE_SECURE'] else 'Off'),
     ]
     return render_template('settings.html', config=config)
+
+AUDIT_PAGE_SIZE = 100
+
+
+@app.route('/audit')
+@admin_required
+def audit_log():
+    """Read-only view of the security audit trail."""
+    from models import AuditLog
+    page = request.args.get('page', 1, type=int) or 1
+    action = (request.args.get('action') or '').strip()
+    query = AuditLog.query
+    if action:
+        query = query.filter(AuditLog.action.startswith(action, autoescape=True))
+    pagination = db.paginate(query.order_by(AuditLog.id.desc()), page=max(page, 1),
+                             per_page=AUDIT_PAGE_SIZE, error_out=False)
+    return render_template('audit.html', entries=pagination.items, pagination=pagination, action=action)
+
 
 @app.errorhandler(404)
 def page_not_found(e):

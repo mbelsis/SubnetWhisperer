@@ -123,7 +123,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
 document.addEventListener('DOMContentLoaded', function() {
     // Confirm user deletion; the username is read from a data attribute
     // (never interpolated into inline JavaScript).

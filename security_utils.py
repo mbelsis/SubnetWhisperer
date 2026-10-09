@@ -1,15 +1,20 @@
 """
 Security utility functions for command filtering and sensitive data masking.
 
-IMPORTANT: the command filter in this module is a best-effort guardrail that
-catches common mistakes and obviously destructive commands. It is NOT a
-security boundary: anyone allowed to run commands on a host can run whatever
-that account is allowed to run. Use least-privilege accounts on the targets.
+IMPORTANT: the denylist checks in this module are a best-effort guardrail that
+catches common mistakes and obviously destructive commands. A denylist over
+shell commands can always be bypassed (interpreters such as python -c, encoded
+payloads, scripts already on the host, ...), so it is NOT a security boundary.
+
+For a real control set COMMAND_SANITIZATION=allowlist: only command lines that
+appear verbatim in an admin-managed command template may run. Combine it with
+least-privilege accounts and a sudoers allowlist on the target hosts.
 """
 import os
 import re
 import shlex
 import logging
+import posixpath
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +22,20 @@ logger = logging.getLogger(__name__)
 _BLOCK_DEVICE_RE = re.compile(r'^/dev/(sd|hd|nvme|vd|xvd|mmcblk)\w*$')
 
 # Programs that power the machine off or reboot it (matched as argv[0])
-_POWER_COMMANDS = {'shutdown', 'reboot', 'halt', 'poweroff'}
+_POWER_COMMANDS = {'shutdown', 'reboot', 'halt', 'poweroff', 'kexec'}
+
+# systemctl / loginctl verbs that change the power state or drop to a rescue target
+_POWER_VERBS = {'reboot', 'poweroff', 'halt', 'kexec', 'suspend', 'hibernate', 'hybrid-sleep',
+                'suspend-then-hibernate', 'rescue', 'emergency', 'isolate', 'soft-reboot',
+                'default', 'exit'}
+
+# Paths that a recursive rm must never target (compared after normalization)
+_PROTECTED_RM_TARGETS = {'/', '/*', '~', '~/*', '$HOME', '$HOME/*', '${HOME}', '${HOME}/*'}
+
+# Files whose contents are password hashes
+_SHADOW_FILES = {'/etc/shadow', '/etc/gshadow', '/etc/shadow-', '/etc/gshadow-'}
+
+MODES = ('enabled', 'disabled', 'allowlist')
 
 # Restricted programs (matched against argv[0], only in enabled mode)
 RESTRICTED_COMMANDS = {
@@ -79,9 +97,42 @@ _PEM_REPLACEMENT = "-----BEGIN PRIVATE KEY-----***REDACTED***-----END PRIVATE KE
 _COMPILED_SENSITIVE = [re.compile(p) for p in SENSITIVE_DATA_PATTERNS]
 
 
+def sanitization_mode():
+    """Return the COMMAND_SANITIZATION mode: 'enabled' (default), 'disabled' or 'allowlist'."""
+    mode = (os.environ.get('COMMAND_SANITIZATION') or 'enabled').strip().lower()
+    if mode not in MODES:
+        logger.warning("Unknown COMMAND_SANITIZATION %r, using 'enabled'", mode)
+        mode = 'enabled'
+    return mode
+
+
 def _is_sanitization_enabled():
-    """Check if command sanitization is enabled via environment variable."""
-    return os.environ.get('COMMAND_SANITIZATION', 'enabled').lower() != 'disabled'
+    """True when shell operators and restricted programs are blocked (enabled mode)."""
+    return sanitization_mode() == 'enabled'
+
+
+def is_allowlist_mode():
+    return sanitization_mode() == 'allowlist'
+
+
+def _normalize_path(arg):
+    """Collapse '.', '..' and repeated slashes so '/etc/../etc//shadow' == '/etc/shadow'."""
+    if not arg:
+        return arg
+    trailing_glob = arg.endswith('/*')
+    base = arg[:-2] if trailing_glob else arg
+    if base.startswith('/'):
+        base = posixpath.normpath(base)
+        if base.startswith('//'):
+            base = '/' + base.lstrip('/')
+    elif base.startswith(('~', '$HOME', '${HOME}')):
+        head, _, rest = base.partition('/')
+        base = head if not rest else head + '/' + posixpath.normpath(rest)
+        if base.endswith('/.'):
+            base = base[:-2]
+    if trailing_glob:
+        return '/*' if base == '/' else base + '/*'
+    return base
 
 
 def _tokenize(command):
@@ -125,7 +176,7 @@ def _strip_prefixes(argv):
         if re.match(r'^[A-Za-z_][A-Za-z0-9_]*=', argv[0]):
             argv.pop(0)
             changed = True
-        elif head == 'sudo':
+        elif head in ('sudo', 'doas', 'pkexec'):
             argv.pop(0)
             while argv and argv[0].startswith('-'):
                 flag = argv.pop(0)
@@ -163,7 +214,10 @@ def _check_script(script, depth):
 
 def _check_dangerous_argv(argv, depth=0):
     """Return an error message if a simple command is always-blocked."""
+    original = list(argv)
     argv, sudo_flags = _strip_prefixes(argv)
+    prefix = original[:len(original) - len(argv)]
+    sudo_used = any(os.path.basename(t) in ('sudo', 'doas', 'pkexec') for t in prefix)
 
     for flag in sudo_flags:
         if flag in ('-i', '-s', '--login', '--shell') or (
@@ -177,11 +231,18 @@ def _check_dangerous_argv(argv, depth=0):
     prog = os.path.basename(argv[0]).lower()
     args = argv[1:]
 
+    for a in args:
+        candidate = a.split('=', 1)[1] if a.startswith(('if=', 'of=')) else a
+        if '/' in candidate and _normalize_path(candidate) in _SHADOW_FILES:
+            return "Access to password hash files (/etc/shadow, /etc/gshadow) is blocked"
+
     # Look inside `bash -c "..."` style wrappers
     if prog in _SHELLS:
         for i, a in enumerate(args):
             if a.startswith('-') and not a.startswith('--') and 'c' in a[1:] and i + 1 < len(args):
                 return _check_script(args[i + 1], depth)
+        if sudo_used:
+            return "Starting a root shell through sudo is blocked"
         return None
 
     if prog in _POWER_COMMANDS:
@@ -214,14 +275,19 @@ def _check_dangerous_argv(argv, depth=0):
             return "rm --no-preserve-root is blocked"
         if recursive:
             for t in targets:
-                if t in ('/', '/*', '//', '~', '~/', '~/*', '$HOME', '$HOME/', '$HOME/*'):
+                normalized = _normalize_path(t.rstrip('/') or '/')
+                if normalized in _PROTECTED_RM_TARGETS or _normalize_path(t) in _PROTECTED_RM_TARGETS:
                     return f"Recursive removal of '{t}' is blocked"
         return None
 
     if prog == 'find':
-        if '-delete' in args and any(a in ('/', '//', '/*') for a in args):
+        if '-delete' in args and any(_normalize_path(a) in ('/', '/*') for a in args if a.startswith('/')):
             return "find / -delete is blocked"
         return None
+
+    if prog in ('systemctl', 'loginctl') and any(a in _POWER_VERBS for a in args):
+        verb = next(a for a in args if a in _POWER_VERBS)
+        return f"'{prog} {verb}' (power state / rescue target) is blocked"
 
     if prog == 'dd':
         for a in args:
@@ -235,32 +301,31 @@ def _check_dangerous_argv(argv, depth=0):
                 return f"{prog} on block device {a} is blocked"
         return None
 
-    for a in args:
-        if a == '/etc/shadow' or a.startswith('/etc/shadow'):
-            return "Access to /etc/shadow is blocked"
-        if a == '/etc/gshadow':
-            return "Access to /etc/gshadow is blocked"
-
     return None
 
 
-def sanitize_command(command):
+def sanitize_command(command, allowed_commands=None):
     """
     Check whether a command may be run on the scanned hosts.
 
-    This is a best-effort guardrail, not a security boundary.
+    Always blocked (in every mode): recursive rm of /, /* or ~ (also via
+    '/.', '//' etc.), find / -delete, mkfs*, dd/shred/wipefs writes
+    to block devices, fork bombs, curl/wget piped into a shell,
+    shutdown/reboot/halt/poweroff, systemctl/loginctl power verbs,
+    init/telinit 0|6, sudo -i, sudo -s, sudo su, sudo <shell>, and access to
+    /etc/shadow or /etc/gshadow. These checks are a best-effort guardrail.
 
-    Always blocked (in every mode): recursive rm of /, /* or ~, find / -delete,
-    mkfs*, dd/shred/wipefs writes to block devices, fork bombs, curl/wget piped
-    into a shell, shutdown/reboot/halt/poweroff, init/telinit 0|6, sudo -i,
-    sudo -s, sudo su, and access to /etc/shadow.
+    enabled mode (the default): shell operators (; && || & | > < backticks
+    $( ${ and newlines) and restricted programs (systemctl, chmod, useradd,
+    ...) are blocked as well.
 
-    In enabled mode (COMMAND_SANITIZATION is not "disabled", the default) shell
-    operators (; && || & | > < backticks $( ${ and newlines) and restricted
-    programs (systemctl, chmod, useradd, ...) are blocked as well.
+    allowlist mode: the command must also match, verbatim (after trimming), a
+    line of an admin-managed command template. allowed_commands is that set;
+    when it is None in allowlist mode every command is refused (fail closed).
 
     Args:
         command: The command string to check
+        allowed_commands: set of approved command lines (allowlist mode only)
 
     Returns:
         (bool, str): (is_safe, command_or_error_message)
@@ -268,7 +333,14 @@ def sanitize_command(command):
     if not command or not isinstance(command, str) or not command.strip():
         return (False, "Invalid command")
 
-    enabled = _is_sanitization_enabled()
+    mode = sanitization_mode()
+    enabled = mode == 'enabled'
+
+    if mode == 'allowlist' and command.strip() not in (allowed_commands or ()):
+        logger.warning("Blocked command (not in an approved template): %s",
+                       mask_sensitive_data(command).replace('\r', '\\r').replace('\n', '\\n'))
+        return (False, "Command is not in an approved command template "
+                       "(COMMAND_SANITIZATION=allowlist)")
     safe_log = mask_sensitive_data(command).replace('\r', '\\r').replace('\n', '\\n')
 
     def block(reason):
@@ -313,7 +385,7 @@ def sanitize_command(command):
     return (True, command)
 
 
-def validate_commands_list(commands):
+def validate_commands_list(commands, allowed_commands=None):
     """
     Validate a list of commands, checking each for safety.
 
@@ -326,7 +398,7 @@ def validate_commands_list(commands):
     results = []
     all_safe = True
     for cmd in commands:
-        is_safe, result = sanitize_command(cmd)
+        is_safe, result = sanitize_command(cmd, allowed_commands)
         results.append((is_safe, result))
         if not is_safe:
             all_safe = False

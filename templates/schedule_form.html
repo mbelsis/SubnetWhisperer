@@ -259,7 +259,7 @@
                       Keep existing sudo password
                     </label>
                   </div>
-                  <small>Uncheck to change or clear the sudo password</small>
+                  <small>Uncheck to change the sudo password, or uncheck and leave the field blank to remove it</small>
                 </div>
                 {% endif %}
               </div>
@@ -286,7 +286,7 @@
               
               <div class="col-md-6 mb-3">
                 <label for="{{ form.concurrency.id }}" class="form-label">{{ form.concurrency.label.text }}</label>
-                {{ form.concurrency(class="form-control", min=1, max=100) }}
+                {{ form.concurrency(class="form-control", min=1, max=form.concurrency.validators[0].max) }}
                 <small class="text-muted">{{ form.concurrency.description }}</small>
                 {% if form.concurrency.errors %}
                   <div class="invalid-feedback d-block">
@@ -345,7 +345,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
 document.addEventListener('DOMContentLoaded', function() {
   const authTypeSelect = document.getElementById('{{ form.auth_type.id }}');
   const passwordContainer = document.getElementById('passwordContainer');

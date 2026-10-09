@@ -171,3 +171,49 @@ def parse_csv_file(csv_content, max_ips=None, errors=None):
             and re.fullmatch(r'[0-9A-Fa-f:.\-/]+', header) and re.search(r'\d', header):
         values.insert(0, header)
     return parse_subnet_input('\n'.join(values), max_ips=max_ips, errors=errors)
+
+
+def parse_network_list(text, errors=None):
+    """Parse CIDRs / single addresses separated by commas, semicolons or whitespace.
+
+    Returns a list of ip_network objects. Invalid entries are reported through
+    errors (when given) and skipped.
+    """
+    networks = []
+    for token in re.split(r'[\s,;]+', text or ''):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(token, strict=False))
+        except ValueError:
+            _add_error(errors, f"{token}: invalid network")
+    return networks
+
+
+def ip_in_networks(ip, networks):
+    """True if ip (str or ip_address) is inside any of networks."""
+    addr = ipaddress.ip_address(ip) if isinstance(ip, str) else ip
+    return any(addr.version == n.version and addr in n for n in networks)
+
+
+def _load_scan_scope():
+    raw = os.environ.get('SCAN_ALLOWED_SUBNETS', '')
+    errors = []
+    networks = parse_network_list(raw, errors)
+    if errors:
+        # Fail closed: a typo must not silently widen the scope to "anything"
+        raise RuntimeError(f"Invalid SCAN_ALLOWED_SUBNETS: {'; '.join(errors)}")
+    return networks
+
+
+# Authorised scan scope (rules of engagement). Empty = no restriction.
+SCAN_ALLOWED_NETWORKS = _load_scan_scope()
+
+
+def out_of_scope(ip_addresses, networks=None):
+    """Return the addresses that fall outside SCAN_ALLOWED_SUBNETS (empty list when unrestricted)."""
+    networks = SCAN_ALLOWED_NETWORKS if networks is None else networks
+    if not networks:
+        return []
+    return [ip for ip in ip_addresses if not ip_in_networks(ip, networks)]
